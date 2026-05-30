@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Conversation Tree",
+  "version": "0.1.0",
+  "description": "Organize Claude.ai conversations into a topic tree, locally and privately.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://claude.ai/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": ["content/interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://claude.ai/*"],
+      "js": [
+        "content/storage.js",
+        "content/parser.js",
+        "content/merge.js",
+        "content/dom-mapper.js",
+        "content/api-client.js",
+        "content/highlighting.js",
+        "content/tree-panel.js",
+        "content/content.js"
+      ],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

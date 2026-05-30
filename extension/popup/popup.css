@@ -1,0 +1,31 @@
+/* Popup styles — namespaced with .ctv- by convention. */
+.ctv-popup {
+  width: 280px;
+  padding: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1f2937;
+}
+.ctv-popup-title {
+  margin: 0 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.ctv-popup-version {
+  margin: 0 0 12px;
+  font-size: 11px;
+  color: #a855f7;
+}
+.ctv-popup-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ctv-popup-muted {
+  color: #6b7280;
+}
+.ctv-popup code {
+  background: #f3f4f6;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}

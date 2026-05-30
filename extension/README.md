@@ -1,0 +1,161 @@
+# Claude Conversation Tree — Phase 1 (Foundation)
+
+A privacy-first Chrome extension (Manifest V3) that will visualize Claude.ai
+conversations as a user-organized topic tree. This is **Phase 1 only**: the
+plumbing and a discovery harness. No UI is injected yet.
+
+## What Phase 1 does
+
+- Loads a content script on `https://claude.ai/*` and logs that it's alive.
+- **`storage.js`** — wraps `chrome.storage.local` under a single versioned key
+  (`tree-viz-data`); initializes the schema. Stores **no message content**.
+- **`interceptor.js`** — runs in the page's MAIN world at `document_start` and
+  patches `fetch` / `XMLHttpRequest` to capture Claude's own conversation API
+  responses, forwarding them to the extension via `postMessage`.
+- **`api-client.js`** — receives those payloads (and can replay a same-origin
+  direct fetch once the org id is known), normalizes them into a linear message
+  list, and logs a **redacted** shape (message text is stripped).
+- **`dom-mapper.js`** — probes candidate selectors for message elements, reports
+  what it finds, and builds a `Map<messageUuid, HTMLElement>` by correlating DOM
+  text with API messages, kept fresh via a `MutationObserver`.
+
+Everything is in-memory or in `chrome.storage.local`. **No network calls are
+made beyond `claude.ai` itself.**
+
+## How to load it
+
+1. Open `chrome://extensions`.
+2. Enable **Developer mode** (top-right).
+3. Click **Load unpacked** and select the `extension/` folder.
+4. Open or reload a conversation at `https://claude.ai/chat/...`.
+5. Open DevTools on that tab → **Console**.
+
+## What you should see (and what to send back)
+
+Look for a console group titled:
+
+```
+[CTV] FINDINGS — paste this back for the Phase 1 report
+```
+
+Please copy that group **and** expand and copy these two collapsed groups:
+
+- `[CTV api] conversation payload via … — <url>` — the redacted payload shape.
+- `[CTV dom] selector probe` — which selectors matched and sample attributes.
+
+That output tells us:
+
+- the real conversation **endpoint URL** and response shape,
+- the **message array field name**, role/UUID/parent fields,
+- whether the **DOM already carries the UUID** (or we must match by text),
+- the **DOM↔UUID correlation hit rate**.
+
+The redaction strips message text (shows `<text:N chars>`), so the output is
+safe to paste. With it, I'll write the findings report and propose any plan
+revisions before starting Phase 2 (the parser).
+
+## File layout
+
+```
+extension/
+  manifest.json
+  background/service-worker.js   minimal lifecycle logging
+  content/
+    interceptor.js               MAIN-world fetch/XHR capture (document_start)
+    storage.js                   chrome.storage.local wrapper
+    api-client.js                payload capture + normalize + redacted logging
+    dom-mapper.js                selector probe + UUID↔element map
+    content.js                   entry; wiring + FINDINGS report
+    styles.css                   reserves the .ctv- namespace (no UI yet)
+  popup/                         placeholder; global bookmarks land later
+  icons/                         icon-16/48/128.png
+```
+
+## Phase 2 — Parser (done, not yet wired into the UI)
+
+`content/parser.js` is the pure, deterministic marker parser. It takes the
+normalized message list and returns a topic tree + bookmarks, with stable node
+IDs (no DOM/storage/time dependencies). It's loaded by the manifest but not yet
+invoked by `content.js` — that happens in Phase 3 (tree panel).
+
+Run its unit tests (Node only, no browser, no dependencies):
+
+```
+npm test        # from the repo root → runs tests/parser.test.js (27 cases)
+```
+
+Covers every marker (`/child`, `/sibling`, `/parent`, `/root`, `/star`,
+`/bookmark`), edge cases (no name, no-op at root, multiple markers per message,
+unknown commands, assistant messages not scanned, marker-only messages,
+`/star` first), stable IDs, and idempotency.
+
+## Phase 3 — Tree panel + highlighting (read-only)
+
+The parser is now wired into a UI. On a conversation, the extension:
+- parses the messages into a topic tree,
+- injects a collapsible **Topic Tree** panel (top-right; `×` collapses it to a
+  "Tree" button),
+- renders the tree (root → children) with per-node expand/collapse and a
+  message count,
+- **node → messages:** click a node row to highlight its messages in the page
+  and smooth-scroll to the first,
+- **message → node:** click anywhere in a message to highlight its node in the
+  panel.
+
+Still read-only — renaming, drag-to-reparent, delete, and the bookmarks UI come
+in Phases 5–6.
+
+### Try it
+Open a conversation that uses markers, e.g. send messages like:
+
+```
+/child Authentication
+how should I store sessions?
+```
+```
+/child Tokens
+what about refresh tokens?
+```
+```
+/root
+/sibling Deployment
+how do I ship this?
+```
+
+Reload the tab; the panel should show `Auth → Tokens` nested and `Deployment`
+as a top-level sibling. Click nodes and messages to see highlighting both ways.
+
+## Phase 4 — Persistence & re-parsing (done)
+
+On every conversation load the pipeline is now: **parse → load stored overrides
+→ merge → render → save**.
+
+- `content/merge.js` — pure, deterministic override engine (renames, reparents
+  with cycle rejection, deletes that reparent children/messages to root,
+  per-message reassignment). User overrides always win; overrides referencing
+  removed nodes/messages are dropped silently. Tested in `tests/merge.test.js`.
+- `content/storage.js` — `getConversation` / `persistConversation`. The merged
+  tree is stored as a cache under `tree-viz-data → conversations[<id>]`;
+  `overrides` is the source of truth. Marker (`/star`) bookmarks are re-synced on
+  each parse; user bookmarks are left untouched. **No message content is stored.**
+
+There's no visible change yet because `overrides` is empty until Phase 5 adds
+the editing UI — but the tree + bookmarks now survive reloads, and any future
+edit will too.
+
+### Verify persistence
+`chrome.storage` isn't available in the page console. Open the extension's
+**service-worker console**: `chrome://extensions` → this extension → click
+**"service worker"** → in that console run:
+```js
+chrome.storage.local.get("tree-viz-data").then(console.log)
+```
+You should see `conversations[<id>]` with the cached `tree`, empty `overrides`,
+and a `lastParsedAt`. (Alternatively, in the page DevTools console use the
+context dropdown to select the extension's content-script context first.)
+Run `npm test` for the merge/parser unit tests (36 cases).
+
+## Not yet
+
+Drag/rename/delete UI, "reset organization", bookmarks UI, SortableJS — deferred
+to later phases per `../PLAN.md` §11.

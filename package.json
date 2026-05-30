@@ -1,0 +1,11 @@
+{
+  "name": "claude-conversation-tree",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Organize Claude.ai conversations into a topic tree, locally and privately.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\""
+  }
+}
