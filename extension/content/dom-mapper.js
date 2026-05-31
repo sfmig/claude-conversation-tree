@@ -146,34 +146,22 @@
     });
   }
 
-  // STRATEGY A (preferred): order mapping. Zip per-turn containers in document
-  // order against API messages by index, after verifying role alignment (a
-  // turn containing a user-message must correspond to a `human` message). If
-  // counts mismatch or roles don't line up (e.g. virtualization dropped turns),
-  // return null so the caller falls back.
-  function correlateByOrder(normalized) {
-    var turns = Array.prototype.slice.call(document.querySelectorAll(TURN_SELECTOR));
-    var msgs = orderedMessages(normalized);
-    if (!turns.length || turns.length !== msgs.length) {
-      return { ok: false, reason: "turn count " + turns.length + " != message count " + msgs.length };
-    }
-    // Verify role alignment before trusting the zip.
-    for (var i = 0; i < turns.length; i++) {
-      var isUser = !!turns[i].querySelector('[data-testid="user-message"]');
-      if (isUser !== (msgs[i].role === "human")) {
-        return { ok: false, reason: "role misalignment at position " + i };
-      }
-    }
-    map.clear();
-    turns.forEach(function (el, i) {
-      el.setAttribute(DATA_UUID_ATTR, msgs[i].uuid);
-      map.set(msgs[i].uuid, el);
-    });
-    return { ok: true, matched: turns.length, total: msgs.length, strategy: "order", selector: TURN_SELECTOR };
+  function turnRole(el) {
+    return el.querySelector('[data-testid="user-message"]') ? "human" : "assistant";
+  }
+  function turnText(el) {
+    var u = el.querySelector('[data-testid="user-message"]');
+    return normalizeText((u || el).textContent).slice(0, 80);
   }
 
-  // Link API messages to DOM elements. Tries order mapping first (robust),
-  // then falls back to text-prefix matching, reporting per-selector hit rates.
+  // Link API messages to DOM elements via greedy alignment.
+  //
+  // The rendered turn containers are an in-order SUBSEQUENCE of the API message
+  // list (Claude virtualizes off-screen turns). We walk both in order: user
+  // turns are anchored by text (reliable — user text isn't reformatted), and
+  // assistant turns are filled by role/order between anchors. Each user anchor
+  // re-syncs the message pointer, so any miscount stays local. Messages with no
+  // rendered turn (off-screen) are simply left unmapped.
   function correlate(normalized) {
     if (!normalized || !normalized.ok || !normalized.messages.length) {
       console.warn(TAG, "no normalised messages to correlate against yet");
@@ -181,61 +169,40 @@
     }
     lastNormalized = normalized;
 
-    var uuids = normalized.messages.map(function (m) { return m.uuid; });
-    var probeReport = probe(uuids);
+    var msgs = orderedMessages(normalized);
+    var turns = Array.prototype.slice.call(document.querySelectorAll(TURN_SELECTOR));
+    var total = msgs.length;
 
-    // --- Strategy A: order mapping ---
-    var order = correlateByOrder(normalized);
-    if (order.ok) {
-      console.log("%c" + TAG + " order mapping ✓ matched " + order.matched + "/" + order.total +
-        " via '" + order.selector + "'", "color:#16a34a;font-weight:bold");
-      return { matched: order.matched, total: order.total, selector: order.selector, strategy: "order" };
+    function nextOfRole(from, role) {
+      for (var j = from; j < msgs.length; j++) if (msgs[j].role === role) return j;
+      return -1;
     }
-    console.log(TAG, "order mapping unavailable (" + order.reason + "); falling back to text-prefix");
+    function nextHumanByText(from, key) {
+      for (var j = from; j < msgs.length; j++) {
+        if (msgs[j].role !== "human") continue;
+        var mk = normalizeText(msgs[j].text).slice(0, 80);
+        if (mk === key || (key && mk && (mk.indexOf(key) === 0 || key.indexOf(mk) === 0))) return j;
+      }
+      return -1;
+    }
 
-    if (!probeReport.length) return { matched: 0, total: normalized.messages.length };
-
-    // --- Strategy B: text-prefix ---
-    // Build a text-prefix index from API messages with non-empty text.
-    var byPrefix = new Map();
-    normalized.messages.forEach(function (m) {
-      var key = normalizeText(m.text).slice(0, 60);
-      if (key) byPrefix.set(key, m.uuid);
-    });
-
-    // Try text-prefix matching with EACH matched selector and report per-selector
-    // hit rate, so we learn which selector actually identifies messages.
-    var total = normalized.messages.length;
-    var best = { selector: null, matched: 0, byUuid: null };
-    probeReport.forEach(function (r) {
-      var seen = new Set();
-      var els = document.querySelectorAll(r.selector);
-      Array.prototype.forEach.call(els, function (el) {
-        var elText = normalizeText(el.textContent).slice(0, 60);
-        if (!elText) return;
-        var uuid = byPrefix.get(elText);
-        if (uuid) seen.add(uuid);
-      });
-      console.log(TAG, "  text-prefix via '" + r.selector + "': " + seen.size + "/" + total);
-      if (seen.size > best.matched) best = { selector: r.selector, matched: seen.size, byUuid: seen };
-    });
-
-    // Build the map from the best selector.
     map.clear();
-    if (best.selector) {
-      var winners = document.querySelectorAll(best.selector);
-      Array.prototype.forEach.call(winners, function (el) {
-        var elText = normalizeText(el.textContent).slice(0, 60);
-        var uuid = byPrefix.get(elText);
-        if (uuid && !map.has(uuid)) {
-          el.setAttribute(DATA_UUID_ATTR, uuid);
-          map.set(uuid, el);
-        }
-      });
-    }
+    var i = 0, matched = 0;
+    turns.forEach(function (el) {
+      var role = turnRole(el);
+      var k = role === "human" ? nextHumanByText(i, turnText(el)) : -1;
+      if (k === -1) k = nextOfRole(i, role); // fallback: next of this role
+      if (k === -1) return;                  // no remaining message of this role
+      var uuid = msgs[k].uuid;
+      el.setAttribute(DATA_UUID_ATTR, uuid);
+      map.set(uuid, el);
+      i = k + 1;
+      matched++;
+    });
 
-    console.log(TAG, "best selector '" + best.selector + "': matched " + best.matched + "/" + total);
-    return { matched: best.matched, total: total, selector: best.selector };
+    console.log("%c" + TAG + " correlated " + matched + "/" + total + " messages to DOM",
+      matched >= total ? "color:#16a34a" : "color:#d97706");
+    return { matched: matched, total: total, strategy: "greedy" };
   }
 
   function scheduleRecorrelate() {

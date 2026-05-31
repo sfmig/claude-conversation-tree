@@ -103,6 +103,20 @@ test("delete promotes children to the deleted node's PARENT, not all the way to 
   assert.equal(merged.tree.messageIndex["m1"], ids.A);
 });
 
+test("reparent + delete together: messages promote to the NEW parent, not root", () => {
+  const { parsed, ids } = fixture(); // root → A → B, root → C
+  // Move B under C, and delete B → B's messages (m2,m3) should land on C.
+  const merged = merge.applyOverrides(parsed, {
+    nodeOverrides: { [ids.B]: { parentId: ids.C, deleted: true } },
+    messageOverrides: {}
+  });
+  assert.equal(ids.B in merged.tree.nodes, false);
+  assert.equal(merged.tree.messageIndex["m2"], ids.C);
+  assert.equal(merged.tree.messageIndex["m3"], ids.C);
+  // and NOT on root
+  assert.ok(!merged.tree.nodes[ids.root].messageUuids.includes("m2"));
+});
+
 test("never delete or move the root", () => {
   const { parsed, ids } = fixture();
   const merged = merge.applyOverrides(parsed, {

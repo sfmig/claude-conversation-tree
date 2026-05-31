@@ -73,11 +73,13 @@
       }
     });
 
-    // 2. Reparents (skip cycles / invalid targets).
+    // 2. Reparents (skip cycles / invalid targets). Applied even to nodes that
+    //    are also being deleted, so deletion promotes their children/messages to
+    //    the *current* (reparented) parent rather than the original one.
     Object.keys(nodeOv).forEach(function (id) {
       var ov = nodeOv[id];
       var n = nodes[id];
-      if (!n || ov.deleted) return;
+      if (!n) return;
       if (typeof ov.parentId !== "string") return;
       if (id === rootId) return;             // never move root
       if (ov.parentId === id) return;        // no self-parent
