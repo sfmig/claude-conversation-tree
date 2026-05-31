@@ -341,16 +341,17 @@ test("markers in assistant messages are treated as plain content", () => {
 
 // ---- pure-marker messages --------------------------------------------------
 
-test("a marker-only message is not attached to any node", () => {
+test("a marker-only message is still attached to its node (findable)", () => {
   const r = run([
     human("first"),
-    human("/child A"),       // pure marker, no content
+    human("/child A"),       // marker-only: navigates into A
     human("inside A")
   ]);
   const aId = node(r, ROOT_ID).childIds[0];
   assert.deepEqual(node(r, ROOT_ID).messageUuids, ["msg_0"]);
-  assert.deepEqual(node(r, aId).messageUuids, ["msg_2"]);
-  assert.equal("msg_1" in r.tree.messageIndex, false);
+  // the marker-only message attaches to the node it entered (A), so it's findable
+  assert.deepEqual(node(r, aId).messageUuids, ["msg_1", "msg_2"]);
+  assert.equal(r.tree.messageIndex["msg_1"], aId);
 });
 
 // ---- bookmarks -------------------------------------------------------------

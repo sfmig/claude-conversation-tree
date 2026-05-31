@@ -407,6 +407,8 @@ Long conversations may virtualize messages (only render what's near the viewport
 
 ## 13. Open Questions / Decisions to Revisit
 
+- **TODO (before Phase 6) — highlight/scroll for virtualized messages (Bug C):** Claude only keeps on-screen turns in the DOM, so messages scrolled off aren't in the UUID→element map. Clicking a node then fails to highlight those messages and scrolls to the first *rendered* one instead of the true first. Fix: when a node's target message isn't mapped, scroll to roughly its position to force a render, then re-map and highlight (PLAN §9 virtualization caveat).
+- **Override-aware marker resolution (Bug A / naming) — under discussion:** today the parser is pure (operates on raw marker text), so `/up` climbs the marker-parent (ignoring UI drag-reparents) and `/node` addresses by the original marker name (so a UI rename of A→APPLE isn't addressable as `/node APPLE/B`). Making markers resolve against the *current* tree (effective names + parents) requires feeding overrides into the parser. Additive in the simple cases; reparent×name-lookup interactions need care.
 - **Marker conflict with Claude's prose:** Claude might generate text starting with `/` in code blocks. Confirm regex anchoring is sufficient; consider scanning user messages only (current plan) as a robust mitigation.
 - **Multi-tab behavior:** if user has the same conversation open in two tabs, both content scripts read/write the same storage key. Use `chrome.storage.onChanged` to keep tabs in sync.
 - **Conversation deletion on Claude's side:** orphaned bookmarks should be flagged in UI, not silently dropped (v2).

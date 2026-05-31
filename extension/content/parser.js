@@ -280,11 +280,13 @@
       // is current afterwards (PLAN §6).
       parsed.markers.forEach(function (marker) { applyMarker(marker, message); });
 
-      if (parsed.hasContent) {
-        nodes[currentNodeId].messageUuids.push(message.uuid);
-        messageIndex[message.uuid] = currentNodeId;
-        previousMessageUuid = message.uuid;
-      }
+      // Attach every message to its current node so it's always findable
+      // (clicking the node highlights it) — including a marker-only message like
+      // `/node A > B`. Only *substantive* content advances `previousMessageUuid`,
+      // so `/star` still targets the last real message, not a command-only one.
+      nodes[currentNodeId].messageUuids.push(message.uuid);
+      messageIndex[message.uuid] = currentNodeId;
+      if (parsed.hasContent) previousMessageUuid = message.uuid;
     });
 
     return {
