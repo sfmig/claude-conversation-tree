@@ -1,12 +1,13 @@
 /*
- * highlighting.js  —  bidirectional node ↔ message highlighting (Phase 3).
+ * highlighting.js  —  bidirectional node ↔ message highlighting.
  *
- *   node → messages : highlightNodeMessages(nodeId) looks up the node's
- *       messageUuids, finds their DOM elements via dom-mapper, highlights them,
- *       and scrolls the first into view.
- *   message → node  : a single delegated click listener finds the clicked
- *       message's [data-ctv-uuid], maps it to a node via messageIndex, and
- *       activates that node in the tree panel.
+ *   node → messages : highlightNodeMessages(nodeId) highlights the node's
+ *       messages and scrolls the first into view. Because claude.ai virtualizes
+ *       off-screen turns, highlights are STICKY (re-applied as messages render
+ *       during scroll, via dom-mapper's onRecorrelate) and the initial scroll
+ *       HUNTS for a target that isn't currently rendered.
+ *   message → node : a delegated click maps the clicked message's
+ *       [data-ctv-uuid] to a node and activates it in the tree panel.
  *
  * We never preventDefault / stopPropagation on page clicks, so Claude's own UI
  * keeps working — we only add highlight classes.
@@ -19,9 +20,14 @@
   var MSG_CLASS = "ctv-msg-highlight";
 
   var result = null;        // current parse result
+  var activeNodeId = null;  // node whose messages are currently highlighted
+  var activeColor = null;
   var listenerInstalled = false;
+  var minimapEl = null;     // right-edge tick strip for the active node
 
   function clearMessageHighlights() {
+    activeNodeId = null; // stop sticky re-apply
+    removeMinimap();
     var hl = document.querySelectorAll("." + MSG_CLASS);
     Array.prototype.forEach.call(hl, function (el) {
       el.classList.remove(MSG_CLASS);
@@ -36,34 +42,184 @@
     return el.querySelector('[data-user-message-bubble], [data-testid="user-message"]') || el;
   }
 
-  function highlightNodeMessages(nodeId) {
+  // Apply the active node's highlight to whatever of its messages are currently
+  // mapped (rendered). Safe to call repeatedly — idempotent per element.
+  function applyHighlights() {
+    if (!result || !activeNodeId) return;
+    var node = result.tree.nodes[activeNodeId];
+    if (!node) return;
+    node.messageUuids.forEach(function (uuid) {
+      var el = CTV.domMapper.getElement(uuid);
+      if (!el) return;
+      var target = highlightTarget(el);
+      target.classList.add(MSG_CLASS);
+      if (activeColor) target.style.setProperty("--ctv-hl-color", activeColor);
+    });
+  }
+
+  // ---- scrolling to a (possibly virtualized) message ----------------------
+  function scrollContainerFor(el) {
+    var n = el && el.parentElement;
+    while (n && n !== document.body) {
+      var oy = getComputedStyle(n).overflowY;
+      if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 20) return n;
+      n = n.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  function firstMappedElement(ordered) {
+    for (var i = 0; i < ordered.length; i++) {
+      var el = CTV.domMapper.getElement(ordered[i]);
+      if (el) return el;
+    }
+    return null;
+  }
+  function mappedIndexRange(ordered) {
+    var min = -1, max = -1;
+    for (var i = 0; i < ordered.length; i++) {
+      if (CTV.domMapper.getElement(ordered[i])) { if (min < 0) min = i; max = i; }
+    }
+    return min < 0 ? null : { min: min, max: max };
+  }
+
+  var SCROLL_MARGIN = 24; // keep in sync with [data-ctv-uuid] scroll-margin-top
+  function containerTop(c) {
+    return (c === document.scrollingElement || c === document.documentElement || c === document.body)
+      ? 0 : c.getBoundingClientRect().top;
+  }
+  // Scroll the target so its top sits SCROLL_MARGIN below the scrollport top, and
+  // KEEP re-converging — Claude's virtualization shifts layout above the target
+  // for a while after the scroll, so one shot misaligns. Re-measure + correct
+  // until stable (or out of tries). This is what made the manual 2nd click work.
+  function alignToTop(uuid, tries) {
+    var el = CTV.domMapper.getElement(uuid);
+    if (!el) return;
+    var c = scrollContainerFor(el);
+    var delta = (el.getBoundingClientRect().top - containerTop(c)) - SCROLL_MARGIN;
+    if (Math.abs(delta) > 2) c.scrollTo({ top: c.scrollTop + delta, behavior: "smooth" });
+    if (activeNodeId) { applyHighlights(); renderMinimap(activeNodeId); }
+    if (tries <= 0) return;
+    // Re-check after the smooth scroll has had time to finish; correct again if
+    // Claude's virtualization shifted the layout. Stops once stable.
+    setTimeout(function () {
+      CTV.domMapper.recorrelate();
+      var e2 = CTV.domMapper.getElement(uuid);
+      if (!e2) return;
+      var c2 = scrollContainerFor(e2);
+      var d2 = (e2.getBoundingClientRect().top - containerTop(c2)) - SCROLL_MARGIN;
+      if (Math.abs(d2) <= 3) { // settled
+        if (activeNodeId) { applyHighlights(); renderMinimap(activeNodeId); }
+        return;
+      }
+      alignToTop(uuid, tries - 1);
+    }, 400);
+  }
+
+  // Page the conversation toward a target message that isn't rendered yet, then
+  // re-correlate and retry. Once it's mapped, align it to the top (converging).
+  function huntToMessage(targetUuid, tries) {
+    var el = CTV.domMapper.getElement(targetUuid);
+    if (el) {
+      applyHighlights();
+      alignToTop(targetUuid, 8);
+      return;
+    }
+    if (tries <= 0) {
+      console.debug(TAG, "could not bring message into view (virtualized):", targetUuid);
+      return;
+    }
+    var ordered = CTV.domMapper.getOrderedUuids();
+    var ti = ordered.indexOf(targetUuid);
+    var anchor = firstMappedElement(ordered);
+    if (ti < 0 || !anchor) return;
+    var container = scrollContainerFor(anchor);
+    var range = mappedIndexRange(ordered);
+    var page = Math.max(container.clientHeight * 0.8, 200);
+    if (range && ti < range.min) container.scrollTop -= page;      // target above
+    else container.scrollTop += page;                              // below / gap
+    setTimeout(function () {
+      CTV.domMapper.recorrelate();
+      huntToMessage(targetUuid, tries - 1);
+    }, 320);
+  }
+
+  // ---- minimap: ticks on the right edge for the active node's messages ----
+  function removeMinimap() {
+    if (minimapEl && minimapEl.parentNode) minimapEl.parentNode.removeChild(minimapEl);
+    minimapEl = null;
+  }
+  function renderMinimap(nodeId) {
+    removeMinimap();
+    if (!result) return;
+    var node = result.tree.nodes[nodeId];
+    if (!node || !node.messageUuids.length) return;
+    var ordered = CTV.domMapper.getOrderedUuids();
+    if (!ordered.length) return;
+    var anchor = firstMappedElement(ordered);
+    if (!anchor) return; // nothing rendered to anchor the conversation rect
+    var container = scrollContainerFor(anchor);
+    var rect = container.getBoundingClientRect();
+    var denom = container.scrollHeight - container.clientHeight; // scrollbar range
+
+    var indexOf = {};
+    ordered.forEach(function (u, i) { indexOf[u] = i; });
+    var span = Math.max(ordered.length - 1, 1);
+
+    var strip = document.createElement("div");
+    strip.className = "ctv-minimap";
+    strip.style.top = rect.top + "px";
+    strip.style.height = rect.height + "px";
+
+    node.messageUuids.forEach(function (uuid) {
+      // Position by the message's SCROLL fraction so the tick lines up with the
+      // native scrollbar thumb. Use the real content offset for rendered
+      // messages; fall back to index for virtualized ones (refined on scroll).
+      var frac;
+      var el = CTV.domMapper.getElement(uuid);
+      if (el && denom > 0) {
+        var contentTop = el.getBoundingClientRect().top - rect.top + container.scrollTop;
+        frac = Math.max(0, Math.min(1, contentTop / denom));
+      } else {
+        var i = indexOf[uuid];
+        if (i == null) return;
+        frac = i / span;
+      }
+      var tick = document.createElement("div");
+      tick.className = "ctv-minimap-tick";
+      tick.style.top = (frac * 100) + "%";
+      if (activeColor) tick.style.background = activeColor;
+      tick.title = "Jump to this message";
+      tick.addEventListener("click", function (e) {
+        e.stopPropagation();
+        huntToMessage(uuid, 6);
+      });
+      strip.appendChild(tick);
+    });
+    document.body.appendChild(strip);
+    minimapEl = strip;
+  }
+
+  // noScroll = re-apply highlight + minimap without moving the conversation
+  // (used when restoring the selection on panel reopen).
+  function highlightNodeMessages(nodeId, noScroll) {
     if (!result) return;
     var node = result.tree.nodes[nodeId];
     if (!node) return;
 
     clearMessageHighlights();
-
-    // Match the highlight ring/tint to the node's colour in the panel.
-    var color = (CTV.treePanel && CTV.treePanel.getNodeColor)
+    activeNodeId = nodeId;
+    activeColor = (CTV.treePanel && CTV.treePanel.getNodeColor)
       ? CTV.treePanel.getNodeColor(nodeId)
       : null;
+    applyHighlights();
+    renderMinimap(nodeId);
+    if (noScroll) return;
 
-    var first = null;
-    node.messageUuids.forEach(function (uuid) {
-      var el = CTV.domMapper.getElement(uuid);
-      if (!el) return; // not rendered (virtualized / off-screen)
-      var target = highlightTarget(el);
-      target.classList.add(MSG_CLASS);
-      if (color) target.style.setProperty("--ctv-hl-color", color);
-      if (!first) first = el;
-    });
-
-    if (first) {
-      first.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else {
-      console.debug(TAG, "no rendered DOM elements for node", nodeId,
-        "(messages may be virtualized)");
-    }
+    var firstUuid = node.messageUuids[0];
+    if (!firstUuid) return;
+    // Route both rendered and virtualized through huntToMessage: if it's mapped
+    // it aligns (with convergence) immediately; if not, it pages to it first.
+    huntToMessage(firstUuid, 6);
   }
 
   // message → node, via event delegation on the document.
@@ -71,8 +227,7 @@
     if (!result) return;
     var target = e.target;
     if (!target || !target.closest) return;
-    // Ignore clicks inside our own panel.
-    if (target.closest(".ctv-panel")) return;
+    if (target.closest(".ctv-panel")) return; // ignore clicks in our own panel
 
     var el = target.closest("[data-ctv-uuid]");
     if (!el) return;
@@ -86,6 +241,22 @@
   function init() {
     if (listenerInstalled) return;
     document.addEventListener("click", onDocumentClick, true);
+    // Sticky highlights: re-apply the active node's highlight as messages render
+    // in during scroll (handles virtualization).
+    if (CTV.domMapper && CTV.domMapper.onRecorrelate) {
+      CTV.domMapper.onRecorrelate(function () {
+        if (!activeNodeId) return;
+        applyHighlights();
+        renderMinimap(activeNodeId); // refine tick positions as messages render
+      });
+    }
+    // Reposition the minimap strip on resize while a node is active.
+    var rt;
+    window.addEventListener("resize", function () {
+      if (!activeNodeId) return;
+      clearTimeout(rt);
+      rt = setTimeout(function () { if (activeNodeId) renderMinimap(activeNodeId); }, 150);
+    });
     listenerInstalled = true;
   }
 

@@ -122,9 +122,6 @@
   box-shadow: 0 0 0 2px #ffffff; /* separate the dot from the rails */
   z-index: 2;
 }
-.ctv-dot-hollow {
-  /* hollow = collapsed: has hidden children */
-}
 .ctv-dot-current {
   /* "you are here": slightly larger; outer ring set inline in the node colour */
   width: 11px;
@@ -134,9 +131,9 @@
 .ctv-row-label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   height: 100%;
-  padding: 0 8px;
+  padding: 0 8px 0 0;
   border-radius: 7px;
   cursor: pointer;
   user-select: none;
@@ -151,11 +148,23 @@
 
 .ctv-twisty {
   flex: 0 0 auto;
-  width: 12px;
-  text-align: center;
+  width: 16px;
+  align-self: stretch;            /* full row height … */
+  display: inline-flex;
+  align-items: center;            /* … so the glyph centres vertically */
+  justify-content: center;
   color: #9ca3af;
-  font-size: 10px;
+  font-size: 11px;                /* full ▶/▼ triangles read large at this size */
   cursor: pointer;
+  border-radius: 4px;
+}
+.ctv-twisty:hover {
+  color: #111827;
+  background: #ede9fe;
+}
+.ctv-twisty-spacer {
+  cursor: default;
+  visibility: hidden; /* reserves width so titles align with parent rows */
 }
 
 .ctv-node-title {
@@ -182,9 +191,6 @@
   background: #f3f4f6;
   border-radius: 9px;
   padding: 0 6px;
-}
-.ctv-node-edited {
-  /* subtle marker that a title was user-edited */
 }
 
 /* ---- editing affordances ------------------------------------------------ */
@@ -265,4 +271,37 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--ctv-hl-color) 8%, transparent);
   transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Leave room above when scrolling a message to the top, so Claude's sticky
+ * header doesn't clip it (scrollIntoView honours scroll-margin on the target). */
+[data-ctv-uuid] {
+  scroll-margin-top: 24px;
+}
+
+/* ---- minimap (per-selection scrollbar marks) ----------------------------
+ * A thin fixed strip placed left of the tree panel; ticks mark where the
+ * selected node's messages sit in the conversation, in the node's colour. */
+.ctv-minimap {
+  position: fixed;
+  right: 4px; /* far-right edge, just right of the tree panel — scrollbar-like */
+  width: 6px;
+  z-index: 99998;
+  pointer-events: none;
+}
+.ctv-minimap-tick {
+  position: absolute;
+  right: 0;
+  width: 8px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  opacity: 0.85;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+.ctv-minimap-tick:hover {
+  opacity: 1;
+  width: 14px;
 }

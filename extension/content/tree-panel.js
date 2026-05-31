@@ -39,7 +39,7 @@
   var dragNodeId = null;     // node being dragged (reparent)
 
   function dotX(depth) { return LANE_PAD + depth * LANE_W; }
-  function textX(depth) { return dotX(depth) + DOT_R + 6; }
+  function textX(depth) { return dotX(depth) + DOT_R + 6; } // clears the current-node ring
 
   // ---- panel chrome --------------------------------------------------------
   function buildChrome() {
@@ -110,12 +110,22 @@
     buildChrome();
     els.panel.classList.add("ctv-open");
     els.fab.classList.add("ctv-hidden");
+    // Restore the selected node's highlights + minimap (without re-scrolling),
+    // since hide() cleared them.
+    if (activeNodeId && CTV.highlighting && CTV.highlighting.highlightNodeMessages) {
+      CTV.highlighting.highlightNodeMessages(activeNodeId, true);
+    }
   }
 
   function hide() {
     if (!els) return;
     els.panel.classList.remove("ctv-open");
     els.fab.classList.remove("ctv-hidden");
+    // Closing the panel also clears the selection visuals (message highlights
+    // + minimap), so nothing is left dangling over the conversation.
+    if (CTV.highlighting && CTV.highlighting.clearMessageHighlights) {
+      CTV.highlighting.clearMessageHighlights();
+    }
   }
 
   function toggleCollapse(nodeId) {
@@ -252,49 +262,32 @@
     svg.style.width = W + "px";
     svg.style.height = H + "px";
 
-    // Each connector blends from the parent's colour (top) to the child's
-    // colour (bottom), so a branch's colour flows as it descends.
-    var defs = document.createElementNS(SVG_NS, "defs");
-    svg.appendChild(defs);
-    var gradId = 0;
+    // Each connector is two strokes so the colour changes AT the branch point:
+    // a vertical rail in the PARENT's colour, then a peel-off curve in the
+    // CHILD's colour into the child dot.
+    function stroke(d, color) {
+      var p = document.createElementNS(SVG_NS, "path");
+      p.setAttribute("d", d);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", color);
+      p.setAttribute("stroke-width", "2");
+      p.setAttribute("stroke-linecap", "round");
+      svg.appendChild(p);
+    }
 
     rows.forEach(function (item, idx) {
       var node = result.tree.nodes[item.nodeId];
       if (collapsed.has(item.nodeId)) return;
+      var parentColor = colors[item.nodeId] || ROOT_COLOR;
       (node.childIds || []).forEach(function (cid) {
         var cr = rowIndex[cid];
         if (cr == null) return;
         var x1 = dotX(item.depth), y1 = idx * ROW_H + ROW_H / 2;
         var x2 = dotX(item.depth + 1), y2 = cr * ROW_H + ROW_H / 2;
         var bend = Math.min(LANE_W, y2 - y1);
-        // down the parent lane, then a quarter-curve into the child lane.
-        var d = "M " + x1 + " " + y1 + " V " + (y2 - bend) + " Q " + x1 + " " + y2 + " " + x2 + " " + y2;
-
-        var gid = "ctv-grad-" + (gradId++);
-        var grad = document.createElementNS(SVG_NS, "linearGradient");
-        grad.setAttribute("id", gid);
-        grad.setAttribute("gradientUnits", "userSpaceOnUse");
-        grad.setAttribute("x1", x1);
-        grad.setAttribute("y1", y1);
-        grad.setAttribute("x2", x2);
-        grad.setAttribute("y2", y2);
-        var s0 = document.createElementNS(SVG_NS, "stop");
-        s0.setAttribute("offset", "0");
-        s0.setAttribute("stop-color", colors[item.nodeId] || ROOT_COLOR);
-        var s1 = document.createElementNS(SVG_NS, "stop");
-        s1.setAttribute("offset", "1");
-        s1.setAttribute("stop-color", colors[cid] || ROOT_COLOR);
-        grad.appendChild(s0);
-        grad.appendChild(s1);
-        defs.appendChild(grad);
-
-        var p = document.createElementNS(SVG_NS, "path");
-        p.setAttribute("d", d);
-        p.setAttribute("fill", "none");
-        p.setAttribute("stroke", "url(#" + gid + ")");
-        p.setAttribute("stroke-width", "2");
-        p.setAttribute("stroke-linecap", "round");
-        svg.appendChild(p);
+        stroke("M " + x1 + " " + y1 + " V " + (y2 - bend), parentColor);
+        stroke("M " + x1 + " " + (y2 - bend) + " Q " + x1 + " " + y2 + " " + x2 + " " + y2,
+          colors[cid] || ROOT_COLOR);
       });
     });
     graph.appendChild(svg);
@@ -352,14 +345,8 @@
       var dot = document.createElement("span");
       dot.className = "ctv-dot";
       dot.style.left = (dotX(item.depth) - DOT_R) + "px";
-      if (hasKids && isColl) {
-        dot.style.background = "#fff";
-        dot.style.borderColor = col;
-        dot.classList.add("ctv-dot-hollow");
-      } else {
-        dot.style.background = col;
-        dot.style.borderColor = col;
-      }
+      dot.style.background = col; // always filled
+      dot.style.borderColor = col;
       if (item.nodeId === pointerId) {
         // "You are here": outer ring in the node's colour.
         dot.classList.add("ctv-dot-current");
@@ -372,16 +359,22 @@
       labelWrap.className = "ctv-row-label";
       labelWrap.style.marginLeft = textX(item.depth) + "px";
 
+      // Leading slot: a chevron for parents, an equal-width spacer for leaves
+      // (so titles line up). Chevron sits snug to the dot (see textX).
       if (hasKids) {
         var tw = document.createElement("span");
         tw.className = "ctv-twisty";
-        tw.textContent = isColl ? "▸" : "▾";
+        tw.textContent = isColl ? "▶" : "▼";
         tw.title = isColl ? "Expand" : "Collapse";
         tw.addEventListener("click", function (e) {
           e.stopPropagation();
           toggleCollapse(item.nodeId);
         });
         labelWrap.appendChild(tw);
+      } else {
+        var sp = document.createElement("span");
+        sp.className = "ctv-twisty ctv-twisty-spacer";
+        labelWrap.appendChild(sp);
       }
 
       var label = document.createElement("span");
@@ -389,7 +382,6 @@
       label.textContent = node.title;
       label.title = "Double-click to rename";
       if (node.titleSource === "fallback") label.classList.add("ctv-node-fallback");
-      if (node.titleSource === "user-edited") label.classList.add("ctv-node-edited");
       if (item.nodeId === pointerId) label.classList.add("ctv-node-current");
       label.addEventListener("dblclick", function (e) {
         e.stopPropagation();

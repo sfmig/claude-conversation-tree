@@ -44,6 +44,7 @@
   var observer = null;
   var debounceTimer = null;
   var lastNormalized = null; // last normalised message list from api-client
+  var recorrelateListeners = []; // fns called after each (re)correlation
 
   function normalizeText(s) {
     return (s || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -202,6 +203,10 @@
 
     console.log("%c" + TAG + " correlated " + matched + "/" + total + " messages to DOM",
       matched >= total ? "color:#16a34a" : "color:#d97706");
+
+    recorrelateListeners.forEach(function (fn) {
+      try { fn(); } catch (e) { console.error(TAG, e); }
+    });
     return { matched: matched, total: total, strategy: "greedy" };
   }
 
@@ -230,6 +235,18 @@
     probe: probe,
     correlate: correlate,
     getMap: function () { return map; },
-    getElement: function (uuid) { return map.get(uuid) || null; }
+    getElement: function (uuid) { return map.get(uuid) || null; },
+    // Ordered list of all message UUIDs (API order) — for locating virtualized
+    // messages relative to what's currently rendered.
+    getOrderedUuids: function () {
+      return (lastNormalized && lastNormalized.ok)
+        ? lastNormalized.messages.map(function (m) { return m.uuid; })
+        : [];
+    },
+    // Force an immediate re-correlation (the observer is debounced).
+    recorrelate: function () { if (lastNormalized) correlate(lastNormalized); },
+    // Subscribe to run after every (re)correlation — used to re-apply sticky
+    // highlights as virtualized messages render in.
+    onRecorrelate: function (fn) { if (typeof fn === "function") recorrelateListeners.push(fn); }
   };
 })();
