@@ -24,11 +24,32 @@
   var LANE_PAD = 12;
   var DOT_R = 4.5;
 
-  // Node colour: a hue across the full spectrum derived from the node's stable
-  // id (root is a fixed teal). Full-spectrum hues — rather than a small fixed
-  // palette — keep colours both stable per node and distinct (no bucket
-  // collisions).
+  // Node colour: a curated palette of mutually-distinct tones, assigned with
+  // collision-avoidance (see assignColors) so sibling/nearby nodes don't end up
+  // as similar greens/golds. Root is a fixed teal.
   var ROOT_COLOR = "#0d9488";
+  var PALETTE = [
+    "#2563eb", // blue
+    "#dc2626", // red
+    "#16a34a", // green
+    "#ea580c", // orange
+    "#7c3aed", // violet
+    "#db2777", // pink
+    "#0891b2", // sky
+    "#ca8a04", // gold
+    "#9333ea", // purple
+    "#65a30d", // lime
+    "#e11d48", // rose
+    "#4f46e5", // indigo
+    "#b45309", // brown
+    "#0e7490", // dark cyan
+    "#a21caf", // magenta
+    "#4d7c0f", // olive
+    "#b91c1c", // dark red
+    "#1e40af", // navy
+    "#c2410c", // rust
+    "#eeea10"  // yellow
+  ];
 
   var els = null;            // { panel, fab, tree, empty }
   var lastResult = null;
@@ -207,18 +228,20 @@
     return rows;
   }
 
-  // Stable colour per node: hash the (stable) id to a hue, so it stays constant
-  // when the node is reparented, collapsed, or its siblings change — while
-  // spanning the full spectrum so distinct nodes get distinct tones.
-  function colorForId(id) {
+  function hashId(id) {
     var h = 0;
     for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-    return "hsl(" + (h % 360) + ", 68%, 45%)";
+    return h;
   }
+  // Pure per-id colour: a node's slot in the discrete palette depends ONLY on
+  // its (stable) id, so its colour never changes when other nodes are added,
+  // deleted, reparented, or collapsed. Root is the fixed teal. Trade-off: two
+  // ids can hash to the same slot → an occasional exact repeat (acceptable;
+  // the palette is mutually distinct, so no muddy "similar" tones).
   function assignColors(result) {
     var color = {};
     Object.keys(result.tree.nodes).forEach(function (id) {
-      color[id] = id === result.rootNodeId ? ROOT_COLOR : colorForId(id);
+      color[id] = id === result.rootNodeId ? ROOT_COLOR : PALETTE[hashId(id) % PALETTE.length];
     });
     return color;
   }
