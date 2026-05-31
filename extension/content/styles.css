@@ -168,6 +168,10 @@
   color: #9ca3af;
   font-style: italic;
 }
+.ctv-node-current {
+  /* the pointer node — where the next un-marked message lands */
+  font-weight: 600;
+}
 
 .ctv-node-count {
   flex: 0 0 auto;

@@ -131,15 +131,17 @@ Markers are recognized at the start of a line in **user messages only** (Claude'
 
 > **Revised (implemented).** The original relative-only set (`/sibling`,
 > `/child`, `/parent`, `/root`) was replaced with an **address-by-name** model: a
-> single absolute `/node` path plus relative `/child`/`/sibling`, a `>` path
-> separator, and a visible pointer ring. This removed the one-marker-per-line
-> footgun and the move-vs-create ambiguity. The table below is the current spec.
+> single absolute `/node` path, relative `/child`/`/sibling`/`/up`, a `>` path
+> separator, and a visible pointer (ring + bold label). This removed the
+> one-marker-per-line footgun and the move-vs-create ambiguity. The table below is
+> the current spec.
 
 | Marker | Effect |
 |---|---|
 | `/node <path>` | Absolute path from root, `>`-separated (`/node Auth > Tokens`). Each segment is re-entered if it exists, else created; pointer moves to the deepest. Empty `/node` → root. |
 | `/child <name>` | Relative: a child of the current node. Accepts a `>` path. No name → "Untitled topic". |
 | `/sibling <name>` | Relative: a child of the current node's parent (top-level at root). Accepts a `>` path. |
+| `/up` or `/up N` | Pure pointer-move up to the parent (or N levels), clamped at root. May prefix another marker on the same line (`/up 2 /child X`); no chaining. |
 | `/star` or `/bookmark <optional note>` | Bookmark the previous message (the one just received). |
 
 A node is **addressed by name** (absolute or relative) and you go there, creating
@@ -147,12 +149,14 @@ only if absent — so re-using a path re-enters the same node (messages can be a
 later). Node identity is the name-path: `hash(conversationId + parentId + name)`.
 
 ### Parser behavior
-- A line matches the regex `^\/(\w+)(?:\s+(.*))?$` and the command must be in the allowed list (`node`, `child`, `sibling`, `star`, `bookmark`). Otherwise the line is plain text.
+- Allowed commands: `node`, `child`, `sibling`, `up`, `star`, `bookmark`. Other `/word` lines are plain text.
+- A line is an optional leading `/up [N]` move (bounded integer arg, so it peels off unambiguously) followed by one "name" marker (`node`/`child`/`sibling`/`star`/`bookmark`) or content. `/up` is the only marker that may share a line.
 - Markers process before remaining message content; non-marker content in the same message belongs to whatever node is current after marker processing.
-- Multiple markers in one message are processed in order.
+- Markers (one per line, plus the `/up` prefix) are processed in order.
 - Names match **case-insensitively, trimmed**; the first occurrence's casing is the displayed title.
 - **Edge cases:**
   - Empty `/node` (or all-empty path): move pointer to root (no-op at root).
+  - `/up` at root, or `/up N` deeper than the tree: clamp at root. Non-numeric/absent N → 1. Chained `/up /up …` is not supported (use `/up N`).
   - `/child`/`/sibling` with no name: fallback title "Untitled topic" with `titleSource: "fallback"`; always a new node (not addressable).
   - `/star` as the first message: skip silently (no previous message).
   - Unknown command (e.g. `/nde`): treat as plain text.

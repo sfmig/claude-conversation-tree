@@ -84,7 +84,7 @@ Run its unit tests (Node only, no browser, no dependencies):
 npm test        # from the repo root → runs tests/parser.test.js (27 cases)
 ```
 
-Covers every marker (`/node`, `/child`, `/sibling`, `/star`, `/bookmark`), edge
+Covers every marker (`/node`, `/child`, `/sibling`, `/up`, `/star`, `/bookmark`), edge
 cases (empty `/node` → root, no name, multiple markers per message, unknown
 commands, assistant messages not scanned, marker-only messages, `/star` first),
 breadcrumb paths, name re-entry, the pointer, stable IDs, and idempotency.
@@ -179,19 +179,23 @@ survives reloads.
 ## Marker syntax
 
 Markers are recognized at the **start of a line** in **your (user) messages**;
-Claude's replies are never scanned. One marker per line.
+Claude's replies are never scanned. One marker per line — except an optional
+leading `/up` (see below).
 
 | Marker | Effect |
 |---|---|
 | `/node <path>` | Go to an **absolute** path from the root, e.g. `/node Auth > Tokens`. Each segment is re-entered if it exists, else created; the pointer moves to the deepest. `/node` with no path → back to the root. |
 | `/child <name>` | Go to a **child** of the current node (relative). Accepts a path: `/child Tokens > Refresh`. No name → "Untitled topic". |
 | `/sibling <name>` | Go to a **sibling** of the current node (i.e. a child of its parent; a top-level topic at the root). Accepts a path. |
+| `/up` · `/up N` | Move the pointer **up** to the parent (or up N levels), clamped at the root. A pure move (creates nothing). May **prefix** another marker on the same line: `/up 2 /child TOPIC`. |
 | `/star` · `/bookmark <note>` | Bookmark the previous (received) message. |
 
 The separator is **`>`** (a breadcrumb), spaces optional (`A>B` = `A > B`). A
-literal `/` in a topic name is fine. There is **no `/parent` or `/root`** — an
-absolute `/node` (a single segment is top-level; empty is the root) and
-`/sibling` cover those.
+literal `/` in a topic name is fine. There is **no `/parent` or `/root`** — root
+is empty `/node` (or `/up N` to climb out), a top-level topic is `/node TOPIC`,
+and relative climbing is `/up`. `/up` is the only marker that may share a line
+with another (`/up 2 /child X`); chaining (`/up /up …`) is not supported — use
+`/up N`.
 
 ### Re-entering a topic to add messages later
 Because every segment is *addressed by name* (re-enter if it exists, create if
@@ -214,18 +218,19 @@ how do I expire idle sessions?
 - Same name under **different** parents = different topics (each parent is its own
   namespace, like folders).
 - **Unnamed** topics (`/child` with no name) are always new (can't be addressed).
-- The tree shows a **pointer ring** on the node where the next un-marked message
-  will land.
+- The tree marks the current node — where the next un-marked message will land —
+  with a **pointer ring** on its dot and a **bold label**.
 - Caveat: ids key off marker *text*, so editing a marker's name in the
   conversation changes that node's id (orphaning its stored overrides once).
   Renaming/moving via the **UI** doesn't touch marker text, so UI edits are safe.
 
 ## Deviations from PLAN.md (intentional)
 
-- **Navigation is a single absolute `/node` path + relative `/child`/`/sibling`**
-  with a `>` separator and a visible pointer ring — replacing PLAN §5's
-  relative-only `/child`/`/sibling`/`/parent`/`/root`. Removes the
-  one-marker-per-line footgun and the move-vs-create ambiguity.
+- **Navigation is absolute `/node` + relative `/child`/`/sibling`/`/up`** with a
+  `>` separator and a visible pointer (ring + bold label) — replacing PLAN §5's
+  relative-only `/child`/`/sibling`/`/parent`/`/root`. `/up [N]` may prefix a
+  marker on one line (`/up 2 /child X`); `/root` is dropped (use empty `/node`).
+  Removes the one-marker-per-line footgun and the move-vs-create ambiguity.
 - **Drag uses native HTML5 DnD, not SortableJS** — the panel is a flat git-graph,
   not nested `<ul>`s; keeps us dependency-free (PLAN §8/§10).
 - **Delete promotes children to the parent, not root** — standard outliner

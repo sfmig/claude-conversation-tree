@@ -25,11 +25,16 @@
   "use strict";
 
   var ROOT_ID = "node_root";
-  var ALLOWED_COMMANDS = ["node", "child", "sibling", "star", "bookmark"];
+  var ALLOWED_COMMANDS = ["node", "child", "sibling", "up", "star", "bookmark"];
   var PATH_SEP = ">"; // breadcrumb separator: /node Auth > Tokens
-  // A marker occupies a whole line: a slash, a word command, optional argument.
-  // Anchored to line start (no leading whitespace) per PLAN §5 / §13.
-  var MARKER_RE = /^\/(\w+)(?:\s+(.*))?$/;
+  // A line may have an optional leading /up [N] pointer-move, then one "name"
+  // marker (or content). /up's arg is a bounded integer, so it can be peeled off
+  // the front unambiguously — that's what enables `/up 2 /child TOPIC` on one
+  // line. The lookahead stops it eating /update or /up2.
+  var UP_RE = /^\/up(?:\s+(\d+))?(?=$|\s|\/)/;
+  // The trailing "name" marker (note: `up` is intentionally absent — it's a
+  // prefix/standalone only, so `/up /up …` degrades to text, never double-moves).
+  var NAME_RE = /^\/(node|child|sibling|star|bookmark)(?:\s+(.*))?$/;
 
   function isUserRole(role) {
     return role === "human" || role === "user";
@@ -79,17 +84,28 @@
   }
 
   // Split a (user) message into recognised markers + the remaining content.
+  // Each line = optional leading `/up [N]` move + one name marker (or content).
   // Returns { markers: [{command, arg, lineIndex}], contentText, hasContent }.
   function extractMarkers(text) {
     var lines = String(text == null ? "" : text).split(/\r?\n/);
     var markers = [];
     var contentLines = [];
     lines.forEach(function (line, idx) {
-      var m = MARKER_RE.exec(line);
-      if (m && ALLOWED_COMMANDS.indexOf(m[1]) !== -1) {
+      var work = line;
+
+      // Optional leading /up [N] (a single move; chaining is unsupported).
+      var um = UP_RE.exec(work);
+      if (um) {
+        markers.push({ command: "up", arg: um[1] || "", lineIndex: idx });
+        work = work.slice(um[0].length).replace(/^\s+/, "");
+        if (!work) return; // line was just "/up [N]"
+      }
+
+      var m = NAME_RE.exec(work);
+      if (m) {
         markers.push({ command: m[1], arg: (m[2] || "").trim(), lineIndex: idx });
-      } else {
-        contentLines.push(line);
+      } else if (work !== "") {
+        contentLines.push(work);
       }
     });
     var contentText = contentLines.join("\n");
@@ -195,6 +211,17 @@
           // Relative: descend from the current node's parent (top-level at root).
           var parentId = nodes[currentNodeId].parentId || ROOT_ID;
           currentNodeId = applyRelative(marker.arg, parentId, message, marker.lineIndex);
+          break;
+        }
+        case "up": {
+          // Pure pointer-move up N levels (default 1), clamped at root.
+          var n = parseInt(marker.arg, 10);
+          if (!(n >= 1)) n = 1;
+          for (var k = 0; k < n; k++) {
+            var up = nodes[currentNodeId].parentId;
+            if (!up) break; // at root
+            currentNodeId = up;
+          }
           break;
         }
         case "star":

@@ -390,6 +390,7 @@
       label.title = "Double-click to rename";
       if (node.titleSource === "fallback") label.classList.add("ctv-node-fallback");
       if (node.titleSource === "user-edited") label.classList.add("ctv-node-edited");
+      if (item.nodeId === pointerId) label.classList.add("ctv-node-current");
       label.addEventListener("dblclick", function (e) {
         e.stopPropagation();
         startRename(row, labelWrap, label, item.nodeId, node.title);

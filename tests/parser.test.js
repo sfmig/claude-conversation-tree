@@ -68,6 +68,27 @@ test("extractMarkers: a slash inside prose mid-line is not a marker", () => {
   assert.equal(r.hasContent, true);
 });
 
+test("extractMarkers: /up N prefix + a marker on the same line", () => {
+  const r = extractMarkers("/up 2 /child TOPIC");
+  assert.deepEqual(r.markers, [
+    { command: "up", arg: "2", lineIndex: 0 },
+    { command: "child", arg: "TOPIC", lineIndex: 0 }
+  ]);
+  assert.equal(r.hasContent, false);
+});
+
+test("extractMarkers: /up alone on a line", () => {
+  const r = extractMarkers("/up");
+  assert.deepEqual(r.markers, [{ command: "up", arg: "", lineIndex: 0 }]);
+  assert.equal(r.hasContent, false);
+});
+
+test("extractMarkers: /update... is not an /up marker", () => {
+  const r = extractMarkers("/update the config");
+  assert.equal(r.markers.length, 0);
+  assert.equal(r.hasContent, true);
+});
+
 // ---- structural parsing ----------------------------------------------------
 
 test("no markers: every content message lands under root", () => {
@@ -127,6 +148,74 @@ test("empty /node returns to root; content then lands on root", () => {
 test("empty /node at root is a no-op (stays root)", () => {
   const r = run([human("/node\nstill root")]);
   assert.equal(r.tree.messageIndex["msg_0"], ROOT_ID);
+  assert.equal(Object.keys(r.tree.nodes).length, 1);
+});
+
+// ---- /up (relative pointer move) -------------------------------------------
+
+test("/up moves to the parent; content lands there", () => {
+  const r = run([
+    human("/node A > B\nb"),   // pointer at B
+    human("/up\nat A now")     // up to A
+  ]);
+  const aId = node(r, ROOT_ID).childIds[0];
+  const bId = node(r, aId).childIds[0];
+  assert.deepEqual(node(r, bId).messageUuids, ["msg_0"]);
+  assert.deepEqual(node(r, aId).messageUuids, ["msg_1"]);
+});
+
+test("/up at root is a no-op", () => {
+  const r = run([human("/up\nstill root")]);
+  assert.equal(r.tree.messageIndex["msg_0"], ROOT_ID);
+});
+
+test("/up N moves up N levels; over-deep clamps at root", () => {
+  const r = run([
+    human("/node A > B > C\nc"),
+    human("/up 2\nat A"),
+    human("/node A > B > C\nc2"),
+    human("/up 9\nat root")
+  ]);
+  const aId = node(r, ROOT_ID).childIds[0];
+  assert.equal(r.tree.messageIndex["msg_1"], aId);     // up 2 from C → A
+  assert.equal(r.tree.messageIndex["msg_3"], ROOT_ID); // up 9 → clamps to root
+});
+
+test("/up N + /child on one line: up then create under that ancestor", () => {
+  const r = run([
+    human("/node A > B > C\nc"),
+    human("/up 2 /child D\nd")   // up to A, then child D under A
+  ]);
+  const aId = node(r, ROOT_ID).childIds[0];
+  const dId = node(r, aId).childIds.find((id) => node(r, id).title === "D");
+  assert.ok(dId);
+  assert.deepEqual(node(r, dId).messageUuids, ["msg_1"]);
+  assert.equal(r.pointerNodeId, dId);
+});
+
+test("/up /sibling on one line: up one then sibling", () => {
+  const r = run([
+    human("/node A > B\nb"),
+    human("/up /sibling X\nx")   // up to A, sibling of A (top-level), create X
+  ]);
+  assert.deepEqual(childTitles(r, ROOT_ID).sort(), ["A", "X"]);
+});
+
+test("chained /up on one line is NOT supported (no double move)", () => {
+  const r = run([
+    human("/node A > B\nb"),
+    human("/up /up /child D\nd")  // only the first /up applies; rest is content
+  ]);
+  const aId = node(r, ROOT_ID).childIds[0];
+  const bId = node(r, aId).childIds[0];
+  // pointer went up exactly one (B → A); no D was created
+  assert.equal(node(r, aId).childIds.filter((id) => node(r, id).title === "D").length, 0);
+  assert.equal(r.tree.messageIndex["msg_1"], aId);
+});
+
+test("/root is no longer a marker (plain text)", () => {
+  const r = run([human("/root\nhi")]);
+  assert.equal(node(r, ROOT_ID).messageUuids.length, 1); // whole message is content
   assert.equal(Object.keys(r.tree.nodes).length, 1);
 });
 
