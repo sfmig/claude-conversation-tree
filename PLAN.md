@@ -150,9 +150,10 @@ later). Node identity is the name-path: `hash(conversationId + parentId + name)`
 
 ### Parser behavior
 - Allowed commands: `node`, `child`, `sibling`, `up`, `star`, `bookmark`. Other `/word` lines are plain text.
-- A line is an optional leading `/up [N]` move (bounded integer arg, so it peels off unambiguously) followed by one "name" marker (`node`/`child`/`sibling`/`star`/`bookmark`) or content. `/up` is the only marker that may share a line.
-- Markers process before remaining message content; non-marker content in the same message belongs to whatever node is current after marker processing.
-- Markers (one per line, plus the `/up` prefix) are processed in order.
+- A marker may be at the **start of a line** (own line) or the **end of a line, after the message**. Per line, the first command token at line start *or preceded by whitespace* is the content↔marker boundary: text before it is content, the token→EOL is the "marker part". (Whitespace-preceded requirement keeps paths/URLs like `a/b/node` as plain text.)
+- The marker part is `[ /up [N] ] [ one name marker ]` — the bounded-integer `/up` peels off unambiguously, so `/up 2 /child X` works in either position. Two name markers on a line is unsupported (the first takes the rest of the line); chained moves (`/up /up …`) are unsupported — use `/up N`.
+- Markers process before remaining message content; non-marker content in the same message belongs to whatever node is current after marker processing (so a trailing tag places that message under its topic).
+- Caveat: a message literally containing a whitespace-preceded command (e.g. "use /child here") is read as a marker; use a leading own-line marker when mentioning a command literally.
 - Names match **case-insensitively, trimmed**; the first occurrence's casing is the displayed title.
 - **Edge cases:**
   - Empty `/node` (or all-empty path): move pointer to root (no-op at root).

@@ -50,10 +50,12 @@ test("extractMarkers: unknown command is plain text, not a marker", () => {
   assert.equal(r.contentText, "/siblng typo");
 });
 
-test("extractMarkers: leading whitespace means it is NOT a marker", () => {
+test("extractMarkers: a whitespace-preceded command IS a marker (content before it)", () => {
+  // Indented/leading-space command is now a marker (the trailing-tag rule treats
+  // any whitespace-preceded command token as the content↔marker boundary).
   const r = extractMarkers("  /child Indented");
-  assert.equal(r.markers.length, 0);
-  assert.equal(r.hasContent, true);
+  assert.deepEqual(r.markers, [{ command: "child", arg: "Indented", lineIndex: 0 }]);
+  assert.equal(r.hasContent, false);
 });
 
 test("extractMarkers: multiple markers in order", () => {
@@ -87,6 +89,28 @@ test("extractMarkers: /update... is not an /up marker", () => {
   const r = extractMarkers("/update the config");
   assert.equal(r.markers.length, 0);
   assert.equal(r.hasContent, true);
+});
+
+test("extractMarkers: trailing marker — content before, marker after", () => {
+  const r = extractMarkers("how do refresh tokens work? /node Auth > Tokens");
+  assert.deepEqual(r.markers, [{ command: "node", arg: "Auth > Tokens", lineIndex: 0 }]);
+  assert.equal(r.contentText, "how do refresh tokens work?");
+  assert.equal(r.hasContent, true);
+});
+
+test("extractMarkers: trailing /up [N] (+ create) after content", () => {
+  const r = extractMarkers("some question /up 2 /child Rollback");
+  assert.deepEqual(r.markers, [
+    { command: "up", arg: "2", lineIndex: 0 },
+    { command: "child", arg: "Rollback", lineIndex: 0 }
+  ]);
+  assert.equal(r.contentText, "some question");
+});
+
+test("extractMarkers: a path/URL (slash not whitespace-preceded) stays content", () => {
+  const r = extractMarkers("use a/b/node here");
+  assert.equal(r.markers.length, 0);
+  assert.equal(r.contentText, "use a/b/node here");
 });
 
 // ---- structural parsing ----------------------------------------------------
@@ -217,6 +241,48 @@ test("/root is no longer a marker (plain text)", () => {
   const r = run([human("/root\nhi")]);
   assert.equal(node(r, ROOT_ID).messageUuids.length, 1); // whole message is content
   assert.equal(Object.keys(r.tree.nodes).length, 1);
+});
+
+// ---- trailing markers (marker at end of a line) ----------------------------
+
+test("trailing /node: the message lands under the tagged topic", () => {
+  const r = run([
+    human("how do refresh tokens work? /node Auth > Tokens"),
+    assistant("rotate them")
+  ]);
+  const authId = node(r, ROOT_ID).childIds[0];
+  const tokensId = node(r, authId).childIds[0];
+  assert.equal(node(r, tokensId).title, "Tokens");
+  // both the user question and the assistant reply attach to Tokens
+  assert.deepEqual(node(r, tokensId).messageUuids, ["msg_0", "msg_1"]);
+  assert.equal(r.pointerNodeId, tokensId);
+});
+
+test("trailing tag on a multi-line message", () => {
+  const r = run([human("line one\nline two /node X")]);
+  const xId = node(r, ROOT_ID).childIds[0];
+  assert.equal(node(r, xId).title, "X");
+  // both content lines attach to X
+  assert.deepEqual(node(r, xId).messageUuids, ["msg_0"]);
+  assert.equal(r.tree.messageIndex["msg_0"], xId);
+});
+
+test("trailing /up N + /child: up then create, message under the new node", () => {
+  const r = run([
+    human("/node A > B > C\nc"),
+    human("what's the rollback plan? /up 2 /child Rollback")
+  ]);
+  const aId = node(r, ROOT_ID).childIds[0];
+  const rb = node(r, aId).childIds.find((id) => node(r, id).title === "Rollback");
+  assert.ok(rb);
+  assert.deepEqual(node(r, rb).messageUuids, ["msg_1"]);
+});
+
+test("leading own-line markers still behave as before", () => {
+  const r = run([human("/node Auth\nq"), assistant("a")]);
+  const authId = node(r, ROOT_ID).childIds[0];
+  assert.equal(node(r, authId).title, "Auth");
+  assert.deepEqual(node(r, authId).messageUuids, ["msg_0", "msg_1"]);
 });
 
 test("empty /node jumps back to root from a deep node", () => {

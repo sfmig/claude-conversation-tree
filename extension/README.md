@@ -178,9 +178,12 @@ survives reloads.
 
 ## Marker syntax
 
-Markers are recognized at the **start of a line** in **your (user) messages**;
-Claude's replies are never scanned. One marker per line — except an optional
-leading `/up` (see below).
+Markers live in **your (user) messages**; Claude's replies are never scanned. A
+marker may sit at the **start of a line** (on its own line) **or at the end of a
+line, after your message** — e.g. `how do refresh tokens work? /node Auth > Tokens`.
+Trailing is handy because you don't need a separate line (no forgotten newline).
+The marker runs to the end of the line; everything before the command token is
+your message.
 
 | Marker | Effect |
 |---|---|
@@ -193,9 +196,15 @@ leading `/up` (see below).
 The separator is **`>`** (a breadcrumb), spaces optional (`A>B` = `A > B`). A
 literal `/` in a topic name is fine. There is **no `/parent` or `/root`** — root
 is empty `/node` (or `/up N` to climb out), a top-level topic is `/node TOPIC`,
-and relative climbing is `/up`. `/up` is the only marker that may share a line
-with another (`/up 2 /child X`); chaining (`/up /up …`) is not supported — use
-`/up N`.
+and relative climbing is `/up`.
+
+A line's "marker part" is `[ /up [N] ] [ one name marker ]`, so `/up 2 /child X`
+works (leading or trailing). What's **not** supported: chaining multiple moves
+(`/up /up …` — use `/up N`) or two name markers on one line (the first takes the
+rest of the line). A command token is only recognized at line start or after a
+space, so paths/URLs like `a/b/node` stay plain text; the flip side is that a
+message literally containing ` /child …` will be read as a tag — put such literal
+mentions on their own leading line if needed.
 
 ### Re-entering a topic to add messages later
 Because every segment is *addressed by name* (re-enter if it exists, create if

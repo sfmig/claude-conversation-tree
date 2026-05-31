@@ -35,6 +35,10 @@
   // The trailing "name" marker (note: `up` is intentionally absent — it's a
   // prefix/standalone only, so `/up /up …` degrades to text, never double-moves).
   var NAME_RE = /^\/(node|child|sibling|star|bookmark)(?:\s+(.*))?$/;
+  // The first command token on a line, at line start OR preceded by whitespace.
+  // Text before it is content; from the token to EOL is the "marker part". The
+  // whitespace requirement keeps paths/URLs safe (e.g. a/b/node is not a marker).
+  var CMD_AT = /(^|\s)\/(node|child|sibling|up|star|bookmark)\b/;
 
   function isUserRole(role) {
     return role === "human" || role === "user";
@@ -84,28 +88,45 @@
   }
 
   // Split a (user) message into recognised markers + the remaining content.
-  // Each line = optional leading `/up [N]` move + one name marker (or content).
+  // A marker may be at the START of a line (its own line) or at the END after the
+  // message: the first command token (line-start or whitespace-preceded) marks the
+  // boundary — text before it is content, the token→EOL is the "marker part".
+  // The marker part is `[ /up [N] ] [ one name marker ]`.
   // Returns { markers: [{command, arg, lineIndex}], contentText, hasContent }.
   function extractMarkers(text) {
     var lines = String(text == null ? "" : text).split(/\r?\n/);
     var markers = [];
     var contentLines = [];
-    lines.forEach(function (line, idx) {
-      var work = line;
 
-      // Optional leading /up [N] (a single move; chaining is unsupported).
+    function pushContent(s) {
+      if (s !== "") contentLines.push(s);
+    }
+
+    lines.forEach(function (line, idx) {
+      var at = CMD_AT.exec(line);
+      if (!at) {
+        pushContent(line);
+        return;
+      }
+
+      // Split: content before the command token, marker part from the token on.
+      var boundary = at.index + at[1].length; // index of the "/"
+      pushContent(line.slice(0, boundary).replace(/\s+$/, ""));
+      var work = line.slice(boundary);
+
+      // Optional /up [N] move-prefix (a single move; chaining is unsupported).
       var um = UP_RE.exec(work);
       if (um) {
         markers.push({ command: "up", arg: um[1] || "", lineIndex: idx });
         work = work.slice(um[0].length).replace(/^\s+/, "");
-        if (!work) return; // line was just "/up [N]"
+        if (!work) return; // marker part was just "/up [N]"
       }
 
       var m = NAME_RE.exec(work);
       if (m) {
         markers.push({ command: m[1], arg: (m[2] || "").trim(), lineIndex: idx });
-      } else if (work !== "") {
-        contentLines.push(work);
+      } else {
+        pushContent(work); // leftover after /up that isn't a marker
       }
     });
     var contentText = contentLines.join("\n");
