@@ -155,7 +155,66 @@ and a `lastParsedAt`. (Alternatively, in the page DevTools console use the
 context dropdown to select the extension's content-script context first.)
 Run `npm test` for the merge/parser unit tests (36 cases).
 
+## Phase 5 — Editing (done)
+
+The panel is now editable; every edit writes to `overrides` (Phase 4) and
+survives reloads.
+
+- **Rename** — double-click a topic's label, type, Enter to save (Esc cancels).
+- **Delete** — hover a row and click the 🗑 button; its messages and sub-topics
+  are promoted **up to the parent topic** (a top-level topic's children land at
+  the root, since root is their parent).
+- **Reparent** — drag a topic onto another topic to make it a child; drop onto
+  the root row to make it top-level. Invalid drops (onto itself or a descendant)
+  are blocked, so no cycles.
+- **Reset organization** — the "Reset" button in the panel header clears all
+  your edits for this conversation and rebuilds the marker-only tree.
+
+> Note on drag: the plan suggested SortableJS, but the panel is a flat git-graph
+> (not nested `<ul>`s), so reparenting uses native HTML5 drag-and-drop
+> ("drop onto a node = become its child"). That keeps the extension
+> dependency-free (no bundled lib). The merge engine (`merge.js`) still enforces
+> all the rules (cycle rejection, root protection) regardless of how an edit is
+> triggered.
+
+## Markers are navigation — re-entering a topic to add messages later
+
+`/child <name>` and `/sibling <name>` **re-enter** an existing same-named topic
+under the current parent instead of creating a duplicate. So you can return to a
+topic any time and keep adding to it:
+
+```
+/child Authentication
+how should I store sessions?
+```
+…later in the conversation…
+```
+/root
+/child Authentication      ← re-enters the same node; messages append here
+what about refresh tokens?
+```
+
+- Identity is the **name-path**: `id = hash(conversationId + parentId + name)`.
+  Same path → same node.
+- Names match **case-insensitively, trimmed**; the first occurrence's casing is
+  the displayed title.
+- Same name under **different** parents = different topics (each parent has its
+  own namespace, like folders).
+- **Unnamed** `/child` (→ "Untitled topic") is always new (can't be addressed).
+- Caveat: this keys node ids off marker *text*, so editing a marker's name in the
+  conversation changes that node's id (orphaning its stored overrides once).
+  Renaming/moving via the **UI** doesn't touch marker text, so UI edits are safe.
+
+## Deviations from PLAN.md (intentional)
+
+- **Drag uses native HTML5 DnD, not SortableJS** — the panel is a flat git-graph,
+  not nested `<ul>`s; keeps us dependency-free (PLAN §8/§10).
+- **Delete promotes children to the parent, not root** — standard outliner
+  behavior (PLAN §7 said root).
+- **Node ids are name-path hashes, not marker message+line hashes** — enables
+  re-entering topics to add messages later (revises PLAN §4/§7).
+
 ## Not yet
 
-Drag/rename/delete UI, "reset organization", bookmarks UI, SortableJS — deferred
-to later phases per `../PLAN.md` §11.
+Bookmarks UI (star buttons, global popup), scroll-based highlighting, settings —
+deferred to later phases per `../PLAN.md` §11.

@@ -261,6 +261,67 @@ test("root node shape is well-formed", () => {
   ]);
 });
 
+// ---- name-based resolution (re-entering nodes) -----------------------------
+
+test("re-using /child <name> under the same parent re-enters the node (no duplicate)", () => {
+  const r = run([
+    human("/child Auth\nq1"),
+    assistant("a1"),
+    human("/root\nsomething at root"),
+    human("/child Auth\nq2 — added later"),   // should RE-ENTER the first Auth
+    assistant("a2")
+  ]);
+  // only one Auth node under root
+  assert.equal(childTitles(r, ROOT_ID).filter((t) => t === "Auth").length, 1);
+  const authId = node(r, ROOT_ID).childIds.find((id) => node(r, id).title === "Auth");
+  // both early and late messages live in the same node
+  assert.deepEqual(node(r, authId).messageUuids, ["msg_0", "msg_1", "msg_3", "msg_4"]);
+});
+
+test("name matching is case-insensitive and trimmed", () => {
+  const r = run([
+    human("/child Authentication\nq1"),
+    human("/root\n/child   authentication  \nq2")  // different case + spaces
+  ]);
+  assert.equal(node(r, ROOT_ID).childIds.length, 1);
+  const id = node(r, ROOT_ID).childIds[0];
+  assert.equal(node(r, id).title, "Authentication"); // first occurrence's casing kept
+  assert.deepEqual(node(r, id).messageUuids, ["msg_0", "msg_1"]);
+});
+
+test("same name under DIFFERENT parents are distinct nodes", () => {
+  const r = run([
+    human("/child A\n/child Notes\nq1"),       // Notes under A
+    human("/root\n/child B\n/child Notes\nq2")  // Notes under B
+  ]);
+  const aId = node(r, ROOT_ID).childIds.find((id) => node(r, id).title === "A");
+  const bId = node(r, ROOT_ID).childIds.find((id) => node(r, id).title === "B");
+  const notesUnderA = node(r, aId).childIds[0];
+  const notesUnderB = node(r, bId).childIds[0];
+  assert.notEqual(notesUnderA, notesUnderB);
+  assert.equal(node(r, notesUnderA).title, "Notes");
+  assert.equal(node(r, notesUnderB).title, "Notes");
+});
+
+test("unnamed topics are always new (cannot be re-entered by name)", () => {
+  const r = run([
+    human("/child\nq1"),
+    human("/root\n/child\nq2")
+  ]);
+  // two distinct Untitled topics under root
+  assert.equal(node(r, ROOT_ID).childIds.length, 2);
+});
+
+test("re-entered node keeps a stable id across re-parses", () => {
+  const build = () => run([
+    human("/child Auth\nq1"),
+    human("/root\n/child Auth\nq2")
+  ]);
+  const a = build();
+  const b = build();
+  assert.deepEqual(Object.keys(a.tree.nodes).sort(), Object.keys(b.tree.nodes).sort());
+});
+
 // ---- a fuller fixture ------------------------------------------------------
 
 test("realistic conversation parses into the expected topic tree", () => {

@@ -49,11 +49,27 @@
     return 4294967296 * (2097151 & h2) + (h1 >>> 0);
   }
 
-  // Stable node id: derived from facts that survive re-parses (PLAN §4/§7).
-  function generateNodeId(conversationId, markerMessageUuid, markerLineIndex) {
+  // Named nodes are addressed by their name-path: id = hash(conversationId +
+  // parentId + normalizedName). Re-using the same /child or /sibling name under
+  // the same parent yields the SAME id, so the node is re-entered (messages can
+  // be added later) rather than duplicated. (Names are matched case-insensitively
+  // and trimmed.)
+  function namedNodeId(conversationId, parentId, normalizedName) {
+    return "node_" + cyrb53(
+      String(conversationId) + "|" + String(parentId) + "|" + normalizedName
+    ).toString(16);
+  }
+
+  // Unnamed topics can't be addressed by name, so each occurrence is a distinct
+  // node keyed by the marker's message + line.
+  function unnamedNodeId(conversationId, markerMessageUuid, markerLineIndex) {
     return "node_" + cyrb53(
       String(conversationId) + "|" + String(markerMessageUuid) + "|" + String(markerLineIndex)
     ).toString(16);
+  }
+
+  function normalizeName(name) {
+    return name.trim().toLowerCase();
   }
 
   // Stable bookmark id: one bookmark per (conversation, target message).
@@ -102,13 +118,11 @@
     var currentNodeId = ROOT_ID;
     var previousMessageUuid = null;
 
-    function makeNode(rawTitle, parentId, markerMsgUuid, lineIndex) {
-      var id = generateNodeId(conversationId, markerMsgUuid, lineIndex);
-      var hasTitle = rawTitle && rawTitle.trim() !== "";
+    function createNode(id, title, titleSource, parentId) {
       nodes[id] = {
         id: id,
-        title: hasTitle ? rawTitle.trim() : "Untitled topic",
-        titleSource: hasTitle ? "marker" : "fallback",
+        title: title,
+        titleSource: titleSource,
         parentId: parentId,
         childIds: [],
         messageUuids: [],
@@ -121,16 +135,29 @@
       return id;
     }
 
+    // Re-enter the named child of `parentId` if it already exists, otherwise
+    // create it. Unnamed topics are always new and unique.
+    function resolveOrCreate(rawTitle, parentId, markerMsgUuid, lineIndex) {
+      var name = (rawTitle || "").trim();
+      if (name) {
+        var id = namedNodeId(conversationId, parentId, normalizeName(name));
+        if (nodes[id]) return id; // re-enter existing same-named child
+        return createNode(id, name, "marker", parentId);
+      }
+      var uid = unnamedNodeId(conversationId, markerMsgUuid, lineIndex);
+      return createNode(uid, "Untitled topic", "fallback", parentId);
+    }
+
     function applyMarker(marker, message) {
       switch (marker.command) {
         case "child":
-          currentNodeId = makeNode(marker.arg, currentNodeId, message.uuid, marker.lineIndex);
+          currentNodeId = resolveOrCreate(marker.arg, currentNodeId, message.uuid, marker.lineIndex);
           break;
         case "sibling": {
           // Sibling = same parent as current. At root (no parent), the sensible
           // behaviour is a new top-level topic under root.
           var parentId = nodes[currentNodeId].parentId || ROOT_ID;
-          currentNodeId = makeNode(marker.arg, parentId, message.uuid, marker.lineIndex);
+          currentNodeId = resolveOrCreate(marker.arg, parentId, message.uuid, marker.lineIndex);
           break;
         }
         case "parent":
@@ -192,7 +219,8 @@
     ROOT_ID: ROOT_ID,
     ALLOWED_COMMANDS: ALLOWED_COMMANDS,
     cyrb53: cyrb53,
-    generateNodeId: generateNodeId,
+    namedNodeId: namedNodeId,
+    unnamedNodeId: unnamedNodeId,
     generateBookmarkId: generateBookmarkId,
     extractMarkers: extractMarkers,
     parseConversation: parseConversation

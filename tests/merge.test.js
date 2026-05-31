@@ -64,19 +64,43 @@ test("reparent that would create a cycle is rejected", () => {
   assert.equal(merged.tree.nodes[ids.A].parentId, ids.root);
 });
 
-test("delete override removes node; children + messages reparent to root", () => {
+test("delete override removes node; children + messages promote to parent (root here)", () => {
   const { parsed, ids } = fixture();
   const merged = merge.applyOverrides(parsed, {
     nodeOverrides: { [ids.A]: { deleted: true } },
     messageOverrides: {}
   });
   assert.equal(ids.A in merged.tree.nodes, false);
-  // B (A's child) now under root
+  // B (A's child) promotes to A's parent — which is root here
   assert.equal(merged.tree.nodes[ids.B].parentId, ids.root);
   assert.ok(merged.tree.nodes[ids.root].childIds.includes(ids.B));
   // A's messages (m0, m1) moved to root
   assert.equal(merged.tree.messageIndex["m0"], ids.root);
   assert.equal(merged.tree.messageIndex["m1"], ids.root);
+});
+
+test("delete promotes children to the deleted node's PARENT, not all the way to root", () => {
+  // root → A → B → D
+  const messages = [
+    { uuid: "m0", role: "human", text: "/child A\na", index: 0 },
+    { uuid: "m1", role: "human", text: "/child B\nb", index: 1 }, // B under A
+    { uuid: "m2", role: "human", text: "/child D\nd", index: 2 }  // D under B
+  ];
+  const parsed = parser.parseConversation({ conversationId: "c", conversationTitle: "T", messages });
+  const ids = {};
+  Object.values(parsed.tree.nodes).forEach((n) => { if (n.id !== parsed.rootNodeId) ids[n.title] = n.id; });
+
+  const merged = merge.applyOverrides(parsed, {
+    nodeOverrides: { [ids.B]: { deleted: true } },
+    messageOverrides: {}
+  });
+  assert.equal(ids.B in merged.tree.nodes, false);
+  // D promotes to A (B's parent), NOT to root
+  assert.equal(merged.tree.nodes[ids.D].parentId, ids.A);
+  assert.ok(merged.tree.nodes[ids.A].childIds.includes(ids.D));
+  assert.ok(!merged.tree.nodes[parsed.rootNodeId].childIds.includes(ids.D));
+  // B's message m1 promotes to A
+  assert.equal(merged.tree.messageIndex["m1"], ids.A);
 });
 
 test("never delete or move the root", () => {

@@ -64,6 +64,18 @@
   background: #f3f4f6;
   color: #111827;
 }
+.ctv-panel-reset {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: #6b7280;
+  margin-left: auto;
+  margin-right: 4px;
+}
+.ctv-panel-reset:hover {
+  background: #fef2f2;
+  color: #b91c1c;
+}
 
 /* ---- tree --------------------------------------------------------------- */
 .ctv-tree {
@@ -161,6 +173,55 @@
   background: #f3f4f6;
   border-radius: 9px;
   padding: 0 6px;
+}
+.ctv-node-edited {
+  /* subtle marker that a title was user-edited */
+}
+
+/* ---- editing affordances ------------------------------------------------ */
+.ctv-row-del {
+  flex: 0 0 auto;
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 5px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.ctv-row:hover .ctv-row-del {
+  opacity: 0.55;
+}
+.ctv-row-del:hover {
+  opacity: 1;
+  background: #fef2f2;
+}
+
+.ctv-row[draggable="true"] {
+  cursor: grab;
+}
+.ctv-row-dragging {
+  opacity: 0.4;
+}
+.ctv-row-drop .ctv-row-label {
+  background: #ecfeff;
+  box-shadow: inset 0 0 0 2px #06b6d4;
+}
+
+.ctv-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  padding: 1px 4px;
+  border: 1px solid #c4b5fd;
+  border-radius: 5px;
+  outline: none;
+}
+.ctv-rename-input:focus {
+  border-color: #7c3aed;
 }
 
 /* ---- collapsed-state FAB ------------------------------------------------ */

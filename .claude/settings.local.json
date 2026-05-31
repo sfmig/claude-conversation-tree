@@ -9,7 +9,8 @@
       "Bash(node --check extension/content/highlighting.js)",
       "Bash(node --check extension/content/tree-panel.js)",
       "Bash(node --check extension/content/interceptor.js)",
-      "Bash(node --check extension/content/content.js)"
+      "Bash(node --check extension/content/content.js)",
+      "Bash(node --check extension/content/merge.js)"
     ]
   }
 }

@@ -18,8 +18,11 @@
   var TAG = "[CTV]";
   var VERSION = "0.1.0";
 
-  var currentResult = null;
-  var currentConversationId = null; // the conversation currently rendered
+  var currentResult = null;          // last merged tree rendered
+  var currentConversationId = null;  // the conversation currently rendered
+  var currentParsed = null;          // last raw parse (to re-merge on edits)
+  var currentOverrides = null;       // user overrides for the current conversation
+  var currentTitle = "Conversation"; // current conversation title (for persist)
 
   function printFindings(conv) {
     var api = CTV.apiClient.getState();
@@ -87,8 +90,11 @@
       // viewing; otherwise it's stale (user navigated away) — but still persist.
       var isCurrent = conversationId === CTV.apiClient.getConversationIdFromUrl();
       if (isCurrent) {
-        currentResult = merged;
         currentConversationId = conversationId;
+        currentParsed = parsed;
+        currentOverrides = overrides;
+        currentTitle = conversationTitle;
+        currentResult = merged;
         console.debug(TAG, "merged tree:",
           Object.keys(merged.tree.nodes).length, "nodes,",
           Object.keys(parsed.bookmarks).length, "marker bookmarks");
@@ -97,34 +103,80 @@
         console.debug(TAG, "stale payload for", conversationId, "— persisting only");
       }
 
-      // The merged tree is a cache; overrides remain the source of truth.
-      var record = {
-        conversationId: conversationId,
-        conversationTitle: conversationTitle,
-        rootNodeId: merged.rootNodeId,
-        tree: merged.tree,
-        overrides: overrides,
-        lastParsedAt: Date.now(),
-        schemaVersion: CTV.storage.SCHEMA_VERSION
-      };
-      return CTV.storage.persistConversation(conversationId, record, parsed.bookmarks);
+      return persist(conversationId, conversationTitle, parsed, overrides, merged);
     }).catch(function (e) {
       console.error(TAG, "persist/merge failed", e);
     });
   }
 
+  // The merged tree is a cache; overrides remain the source of truth.
+  function persist(conversationId, title, parsed, overrides, merged) {
+    var record = {
+      conversationId: conversationId,
+      conversationTitle: title,
+      rootNodeId: merged.rootNodeId,
+      tree: merged.tree,
+      overrides: overrides,
+      lastParsedAt: Date.now(),
+      schemaVersion: CTV.storage.SCHEMA_VERSION
+    };
+    return CTV.storage.persistConversation(conversationId, record, parsed.bookmarks);
+  }
+
+  // Re-merge current overrides → re-render → persist. Called after every edit.
+  function commitEdit() {
+    if (!currentParsed || !currentOverrides) return;
+    var merged = CTV.merge.applyOverrides(currentParsed, currentOverrides);
+    currentResult = merged;
+    renderTree(merged);
+    persist(currentConversationId, currentTitle, currentParsed, currentOverrides, merged)
+      .catch(function (e) { console.error(TAG, "persist after edit failed", e); });
+  }
+
+  function nodeOverride(nodeId) {
+    var ov = currentOverrides.nodeOverrides;
+    if (!ov[nodeId]) ov[nodeId] = {};
+    return ov[nodeId];
+  }
+
+  // ---- edit handlers (write to overrides; merge enforces the rules) --------
+  var editor = {
+    onNodeSelect: function (nodeId) {
+      CTV.highlighting.highlightNodeMessages(nodeId);
+    },
+    onRename: function (nodeId, title) {
+      if (!currentOverrides) return;
+      title = (title || "").trim();
+      if (!title) return;
+      nodeOverride(nodeId).title = title;
+      commitEdit();
+    },
+    onDelete: function (nodeId) {
+      if (!currentOverrides || !currentResult) return;
+      if (nodeId === currentResult.rootNodeId) return; // never delete root
+      nodeOverride(nodeId).deleted = true;
+      commitEdit();
+    },
+    onReparent: function (nodeId, newParentId) {
+      if (!currentOverrides) return;
+      nodeOverride(nodeId).parentId = newParentId;
+      commitEdit(); // merge rejects cycles / invalid targets defensively
+    },
+    onReset: function () {
+      if (!currentOverrides) return;
+      currentOverrides = CTV.merge.emptyOverrides();
+      commitEdit();
+    }
+  };
+
   function renderTree(result) {
     CTV.highlighting.update(result);
     CTV.highlighting.init();
-    CTV.treePanel.render(result, {
-      onNodeSelect: function (nodeId) {
-        CTV.highlighting.highlightNodeMessages(nodeId);
-      }
-    });
+    CTV.treePanel.render(result, editor);
   }
 
   function boot() {
-    console.log("%c" + TAG + " content script loaded — Phase 4 (persistence)", "color:#a855f7;font-weight:bold", "v" + VERSION);
+    console.log("%c" + TAG + " content script loaded — Phase 5 (editing)", "color:#a855f7;font-weight:bold", "v" + VERSION);
 
     var required = ["storage", "parser", "merge", "apiClient", "domMapper", "highlighting", "treePanel"];
     var missing = required.filter(function (m) { return !CTV[m]; });

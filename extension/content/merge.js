@@ -89,23 +89,31 @@
       n.parentId = ov.parentId;
     });
 
-    // 3. Deletions: remove node; reparent its children + messages to root.
+    // 3. Deletions: remove node; promote its children + messages UP to the
+    //    deleted node's parent (taking its place), falling back to root if that
+    //    parent is gone too.
     Object.keys(nodeOv).forEach(function (id) {
       var ov = nodeOv[id];
       if (!ov.deleted) return;
       if (id === rootId) return; // never delete root
       var n = nodes[id];
       if (!n) return; // orphaned
-      n.childIds.slice().forEach(function (cid) {
-        var c = nodes[cid];
-        if (!c) return;
-        c.parentId = rootId;
-        addChild(rootId, cid);
-      });
-      n.messageUuids.forEach(function (uuid) {
-        nodes[rootId].messageUuids.push(uuid);
-      });
-      removeChild(n.parentId, id);
+
+      var parentId = (n.parentId && nodes[n.parentId]) ? n.parentId : rootId;
+      var parent = nodes[parentId];
+      var kids = n.childIds.slice().filter(function (cid) { return nodes[cid]; });
+      kids.forEach(function (cid) { nodes[cid].parentId = parentId; });
+
+      var pos = parent.childIds.indexOf(id);
+      if (pos === -1) {
+        kids.forEach(function (cid) { addChild(parentId, cid); });
+      } else {
+        // Replace the deleted node with its children, in place.
+        Array.prototype.splice.apply(parent.childIds, [pos, 1].concat(kids));
+      }
+      removeChild(n.parentId, id); // no-op if the splice already removed it
+
+      n.messageUuids.forEach(function (uuid) { parent.messageUuids.push(uuid); });
       delete nodes[id];
     });
 

@@ -24,11 +24,11 @@
   var LANE_PAD = 12;
   var DOT_R = 4.5;
 
-  // Per-branch colour palette (cycled in tree DFS order; root = first).
-  var PALETTE = [
-    "#0d9488", "#7c3aed", "#ea580c", "#2563eb",
-    "#db2777", "#16a34a", "#ca8a04", "#dc2626"
-  ];
+  // Node colour: a hue across the full spectrum derived from the node's stable
+  // id (root is a fixed teal). Full-spectrum hues — rather than a small fixed
+  // palette — keep colours both stable per node and distinct (no bucket
+  // collisions).
+  var ROOT_COLOR = "#0d9488";
 
   var els = null;            // { panel, fab, tree, empty }
   var lastResult = null;
@@ -36,6 +36,7 @@
   var collapsed = new Set(); // UI-only collapse state (node ids)
   var activeNodeId = null;
   var lastColors = {};       // nodeId → palette colour (from last render)
+  var dragNodeId = null;     // node being dragged (reparent)
 
   function dotX(depth) { return LANE_PAD + depth * LANE_W; }
   function textX(depth) { return dotX(depth) + DOT_R + 6; }
@@ -55,6 +56,18 @@
     title.className = "ctv-panel-title";
     title.textContent = "Topic Tree";
 
+    var reset = document.createElement("button");
+    reset.className = "ctv-btn ctv-panel-reset";
+    reset.type = "button";
+    reset.title = "Reset organization — clear all your renames, moves and deletions for this conversation";
+    reset.textContent = "Reset";
+    reset.addEventListener("click", function () {
+      if (typeof handlers.onReset === "function" &&
+          window.confirm("Reset organization?\n\nThis clears all your renames, moves and deletions for this conversation. The marker-based tree is rebuilt.")) {
+        handlers.onReset();
+      }
+    });
+
     var close = document.createElement("button");
     close.className = "ctv-btn ctv-panel-close";
     close.type = "button";
@@ -63,6 +76,7 @@
     close.addEventListener("click", hide);
 
     header.appendChild(title);
+    header.appendChild(reset);
     header.appendChild(close);
 
     var empty = document.createElement("div");
@@ -110,6 +124,64 @@
     rerender();
   }
 
+  // ---- editing helpers -----------------------------------------------------
+  function isDescendant(ancestorId, maybeDescId) {
+    if (!lastResult) return false;
+    var nodes = lastResult.tree.nodes;
+    var cur = nodes[maybeDescId];
+    var guard = 0;
+    while (cur && cur.parentId && guard++ < 100000) {
+      if (cur.parentId === ancestorId) return true;
+      cur = nodes[cur.parentId];
+    }
+    return false;
+  }
+
+  // A drop is valid if it won't no-op or create a cycle.
+  function isValidDrop(dragId, targetId) {
+    if (!dragId || !targetId || dragId === targetId || !lastResult) return false;
+    if (dragId === lastResult.rootNodeId) return false;        // can't move root
+    var node = lastResult.tree.nodes[dragId];
+    if (node && node.parentId === targetId) return false;      // already there
+    if (isDescendant(dragId, targetId)) return false;          // would cycle
+    return true;
+  }
+
+  function clearDropTargets() {
+    if (!els) return;
+    var ds = els.tree.querySelectorAll(".ctv-row-drop");
+    Array.prototype.forEach.call(ds, function (r) { r.classList.remove("ctv-row-drop"); });
+  }
+
+  // Inline rename: swap the label for an input; Enter/blur saves, Esc cancels.
+  function startRename(row, labelWrap, label, nodeId, currentTitle) {
+    row.draggable = false; // don't let the drag handler hijack text selection
+    var input = document.createElement("input");
+    input.className = "ctv-rename-input";
+    input.value = currentTitle;
+    labelWrap.replaceChild(input, label);
+    input.focus();
+    input.select();
+
+    var done = false;
+    function finish(save) {
+      if (done) return;
+      done = true;
+      if (save && typeof handlers.onRename === "function") {
+        handlers.onRename(nodeId, input.value); // controller re-renders
+      } else {
+        rerender(); // restore
+      }
+    }
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", function () { finish(true); });
+    input.addEventListener("click", function (e) { e.stopPropagation(); });
+    input.addEventListener("dblclick", function (e) { e.stopPropagation(); });
+  }
+
   // ---- layout --------------------------------------------------------------
   // Pre-order DFS over the visible tree (collapsed subtrees skipped).
   function flatten(result) {
@@ -125,17 +197,19 @@
     return rows;
   }
 
-  // Stable colour per node: DFS order over the FULL tree, so colours don't
-  // shift when subtrees collapse.
+  // Stable colour per node: hash the (stable) id to a hue, so it stays constant
+  // when the node is reparented, collapsed, or its siblings change — while
+  // spanning the full spectrum so distinct nodes get distinct tones.
+  function colorForId(id) {
+    var h = 0;
+    for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    return "hsl(" + (h % 360) + ", 68%, 45%)";
+  }
   function assignColors(result) {
     var color = {};
-    var i = 0;
-    (function walk(id) {
-      var n = result.tree.nodes[id];
-      if (!n) return;
-      color[id] = PALETTE[i++ % PALETTE.length];
-      n.childIds.forEach(walk);
-    })(result.rootNodeId);
+    Object.keys(result.tree.nodes).forEach(function (id) {
+      color[id] = id === result.rootNodeId ? ROOT_COLOR : colorForId(id);
+    });
     return color;
   }
 
@@ -201,10 +275,10 @@
         grad.setAttribute("y2", y2);
         var s0 = document.createElementNS(SVG_NS, "stop");
         s0.setAttribute("offset", "0");
-        s0.setAttribute("stop-color", colors[item.nodeId] || PALETTE[0]);
+        s0.setAttribute("stop-color", colors[item.nodeId] || ROOT_COLOR);
         var s1 = document.createElementNS(SVG_NS, "stop");
         s1.setAttribute("offset", "1");
-        s1.setAttribute("stop-color", colors[cid] || PALETTE[0]);
+        s1.setAttribute("stop-color", colors[cid] || ROOT_COLOR);
         grad.appendChild(s0);
         grad.appendChild(s1);
         defs.appendChild(grad);
@@ -223,15 +297,52 @@
     // HTML rows (on top): dot + label + count, interactive.
     rows.forEach(function (item, idx) {
       var node = result.tree.nodes[item.nodeId];
-      var col = colors[item.nodeId] || PALETTE[0];
+      var col = colors[item.nodeId] || ROOT_COLOR;
       var hasKids = node.childIds && node.childIds.length > 0;
       var isColl = collapsed.has(item.nodeId);
+
+      var isRoot = item.nodeId === result.rootNodeId;
 
       var row = document.createElement("div");
       row.className = "ctv-row";
       row.dataset.nodeId = item.nodeId;
       row.style.height = ROW_H + "px";
       if (item.nodeId === activeNodeId) row.classList.add("ctv-row-active");
+
+      // Drag to reparent: any row can be a drop target; root can't be dragged.
+      if (!isRoot) {
+        row.draggable = true;
+        row.addEventListener("dragstart", function (e) {
+          dragNodeId = item.nodeId;
+          row.classList.add("ctv-row-dragging");
+          if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", item.nodeId);
+          }
+        });
+        row.addEventListener("dragend", function () {
+          dragNodeId = null;
+          row.classList.remove("ctv-row-dragging");
+          clearDropTargets();
+        });
+      }
+      row.addEventListener("dragover", function (e) {
+        if (!isValidDrop(dragNodeId, item.nodeId)) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        row.classList.add("ctv-row-drop");
+      });
+      row.addEventListener("dragleave", function () {
+        row.classList.remove("ctv-row-drop");
+      });
+      row.addEventListener("drop", function (e) {
+        e.preventDefault();
+        row.classList.remove("ctv-row-drop");
+        if (isValidDrop(dragNodeId, item.nodeId) && typeof handlers.onReparent === "function") {
+          handlers.onReparent(dragNodeId, item.nodeId);
+        }
+        dragNodeId = null;
+      });
 
       var dot = document.createElement("span");
       dot.className = "ctv-dot";
@@ -265,7 +376,13 @@
       var label = document.createElement("span");
       label.className = "ctv-node-title";
       label.textContent = node.title;
+      label.title = "Double-click to rename";
       if (node.titleSource === "fallback") label.classList.add("ctv-node-fallback");
+      if (node.titleSource === "user-edited") label.classList.add("ctv-node-edited");
+      label.addEventListener("dblclick", function (e) {
+        e.stopPropagation();
+        startRename(row, labelWrap, label, item.nodeId, node.title);
+      });
       labelWrap.appendChild(label);
 
       var n = node.messageUuids ? node.messageUuids.length : 0;
@@ -274,6 +391,22 @@
         count.className = "ctv-node-count";
         count.textContent = String(n);
         labelWrap.appendChild(count);
+      }
+
+      if (!isRoot) {
+        var del = document.createElement("button");
+        del.className = "ctv-row-del";
+        del.type = "button";
+        del.title = "Delete topic — its messages and sub-topics move up to the parent topic";
+        del.textContent = "🗑";
+        del.addEventListener("click", function (e) {
+          e.stopPropagation();
+          if (typeof handlers.onDelete === "function" &&
+              window.confirm("Delete topic “" + node.title + "”?\n\nIts messages and any sub-topics move up to the parent topic.")) {
+            handlers.onDelete(item.nodeId);
+          }
+        });
+        labelWrap.appendChild(del);
       }
 
       labelWrap.addEventListener("click", function () {
@@ -310,7 +443,7 @@
   }
 
   function getNodeColor(nodeId) {
-    return lastColors[nodeId] || PALETTE[0];
+    return lastColors[nodeId] || ROOT_COLOR;
   }
 
   CTV.treePanel = {
