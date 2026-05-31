@@ -12,7 +12,7 @@ function fixture() {
     { uuid: "m1", role: "assistant", text: "ans-a", index: 1 },
     { uuid: "m2", role: "human", text: "/child B\nq-b", index: 2 },   // B under A
     { uuid: "m3", role: "assistant", text: "ans-b", index: 3 },
-    { uuid: "m4", role: "human", text: "/root\n/child C\nq-c", index: 4 },
+    { uuid: "m4", role: "human", text: "/node C\nq-c", index: 4 },
     { uuid: "m5", role: "assistant", text: "ans-c", index: 5 }
   ];
   const parsed = parser.parseConversation({
@@ -30,6 +30,12 @@ test("empty overrides → merged tree equals parsed tree", () => {
   const merged = merge.applyOverrides(parsed, merge.emptyOverrides());
   assert.deepEqual(merged.tree.nodes, parsed.tree.nodes);
   assert.deepEqual(merged.tree.messageIndex, parsed.tree.messageIndex);
+});
+
+test("merge passes the pointerNodeId through", () => {
+  const { parsed } = fixture();
+  const merged = merge.applyOverrides(parsed, merge.emptyOverrides());
+  assert.equal(merged.pointerNodeId, parsed.pointerNodeId);
 });
 
 test("rename override wins and sets titleSource user-edited", () => {

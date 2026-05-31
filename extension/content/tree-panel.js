@@ -81,7 +81,7 @@
 
     var empty = document.createElement("div");
     empty.className = "ctv-empty";
-    empty.textContent = "No topics yet. Use /child or /sibling in a message to branch.";
+    empty.textContent = "No topics yet. Type /node Topic > Subtopic in a message to organize.";
 
     var tree = document.createElement("div");
     tree.className = "ctv-tree";
@@ -231,6 +231,11 @@
     var rowIndex = {};
     rows.forEach(function (item, i) { rowIndex[item.nodeId] = i; });
 
+    // The "you are here" pointer — where the next un-marked message lands. Fall
+    // back to root if that node was deleted via the UI.
+    var pointerId = result.pointerNodeId;
+    if (!pointerId || !result.tree.nodes[pointerId]) pointerId = result.rootNodeId;
+
     var maxDepth = rows.reduce(function (m, r) { return Math.max(m, r.depth); }, 0);
     var W = dotX(maxDepth) + LANE_W;
     var H = rows.length * ROW_H;
@@ -355,6 +360,12 @@
         dot.style.background = col;
         dot.style.borderColor = col;
       }
+      if (item.nodeId === pointerId) {
+        // "You are here": outer ring in the node's colour.
+        dot.classList.add("ctv-dot-current");
+        dot.style.boxShadow = "0 0 0 2px #fff, 0 0 0 4px " + col;
+        dot.title = "Current — new messages land here";
+      }
       row.appendChild(dot);
 
       var labelWrap = document.createElement("div");
@@ -446,10 +457,15 @@
     return lastColors[nodeId] || ROOT_COLOR;
   }
 
+  function getActiveNode() {
+    return activeNodeId;
+  }
+
   CTV.treePanel = {
     render: render,
     setActiveNode: setActiveNode,
     getNodeColor: getNodeColor,
+    getActiveNode: getActiveNode,
     show: show,
     hide: hide
   };

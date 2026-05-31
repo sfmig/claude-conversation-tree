@@ -140,6 +140,7 @@
 
     return {
       rootNodeId: rootId,
+      pointerNodeId: parsed.pointerNodeId, // panel falls back to root if it's gone
       tree: { nodes: nodes, messageIndex: messageIndex },
       bookmarks: parsed.bookmarks
     };

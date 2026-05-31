@@ -129,6 +129,15 @@
     var merged = CTV.merge.applyOverrides(currentParsed, currentOverrides);
     currentResult = merged;
     renderTree(merged);
+
+    // Refresh the highlight for the still-selected node so absorbed/moved
+    // messages are reflected immediately (e.g. after a delete promotes a child's
+    // messages into the active node).
+    var active = CTV.treePanel.getActiveNode && CTV.treePanel.getActiveNode();
+    if (active && merged.tree.nodes[active]) {
+      CTV.highlighting.highlightNodeMessages(active);
+    }
+
     persist(currentConversationId, currentTitle, currentParsed, currentOverrides, merged)
       .catch(function (e) { console.error(TAG, "persist after edit failed", e); });
   }

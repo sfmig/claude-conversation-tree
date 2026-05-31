@@ -25,7 +25,8 @@
   "use strict";
 
   var ROOT_ID = "node_root";
-  var ALLOWED_COMMANDS = ["sibling", "child", "parent", "root", "star", "bookmark"];
+  var ALLOWED_COMMANDS = ["node", "child", "sibling", "star", "bookmark"];
+  var PATH_SEP = ">"; // breadcrumb separator: /node Auth > Tokens
   // A marker occupies a whole line: a slash, a word command, optional argument.
   // Anchored to line start (no leading whitespace) per PLAN §5 / §13.
   var MARKER_RE = /^\/(\w+)(?:\s+(.*))?$/;
@@ -148,24 +149,54 @@
       return createNode(uid, "Untitled topic", "fallback", parentId);
     }
 
+    // Split a breadcrumb path ("Auth > Tokens > Refresh") into trimmed segments.
+    function splitPath(rawArg) {
+      return String(rawArg || "").split(PATH_SEP)
+        .map(function (s) { return s.trim(); })
+        .filter(function (s) { return s.length; });
+    }
+
+    // Walk named segments from `baseParentId`, re-entering or creating each;
+    // return the deepest node id.
+    function walkPath(segments, baseParentId, message, lineIndex) {
+      var parentId = baseParentId;
+      var id = baseParentId;
+      segments.forEach(function (seg) {
+        id = resolveOrCreate(seg, parentId, message.uuid, lineIndex);
+        parentId = id;
+      });
+      return id;
+    }
+
+    // Relative descent from `baseParentId`. Empty arg → a single unnamed topic.
+    function applyRelative(rawArg, baseParentId, message, lineIndex) {
+      var segments = splitPath(rawArg);
+      if (!segments.length) {
+        return resolveOrCreate("", baseParentId, message.uuid, lineIndex); // unnamed
+      }
+      return walkPath(segments, baseParentId, message, lineIndex);
+    }
+
     function applyMarker(marker, message) {
       switch (marker.command) {
-        case "child":
-          currentNodeId = resolveOrCreate(marker.arg, currentNodeId, message.uuid, marker.lineIndex);
-          break;
-        case "sibling": {
-          // Sibling = same parent as current. At root (no parent), the sensible
-          // behaviour is a new top-level topic under root.
-          var parentId = nodes[currentNodeId].parentId || ROOT_ID;
-          currentNodeId = resolveOrCreate(marker.arg, parentId, message.uuid, marker.lineIndex);
+        case "node": {
+          // Absolute path from root; empty path returns the pointer to root.
+          var segs = splitPath(marker.arg);
+          currentNodeId = segs.length
+            ? walkPath(segs, ROOT_ID, message, marker.lineIndex)
+            : ROOT_ID;
           break;
         }
-        case "parent":
-          currentNodeId = nodes[currentNodeId].parentId || ROOT_ID; // no-op at root
+        case "child":
+          // Relative: descend from the current node.
+          currentNodeId = applyRelative(marker.arg, currentNodeId, message, marker.lineIndex);
           break;
-        case "root":
-          currentNodeId = ROOT_ID;
+        case "sibling": {
+          // Relative: descend from the current node's parent (top-level at root).
+          var parentId = nodes[currentNodeId].parentId || ROOT_ID;
+          currentNodeId = applyRelative(marker.arg, parentId, message, marker.lineIndex);
           break;
+        }
         case "star":
         case "bookmark":
           if (previousMessageUuid) {
@@ -210,6 +241,7 @@
 
     return {
       rootNodeId: ROOT_ID,
+      pointerNodeId: currentNodeId, // where the next un-marked message would land
       tree: { nodes: nodes, messageIndex: messageIndex },
       bookmarks: bookmarks
     };

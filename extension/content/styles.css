@@ -125,6 +125,11 @@
 .ctv-dot-hollow {
   /* hollow = collapsed: has hidden children */
 }
+.ctv-dot-current {
+  /* "you are here": slightly larger; outer ring set inline in the node colour */
+  width: 11px;
+  height: 11px;
+}
 
 .ctv-row-label {
   display: flex;

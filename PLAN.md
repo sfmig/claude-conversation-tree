@@ -129,26 +129,33 @@ All data stored in `chrome.storage.local` under a single key (e.g. `tree-viz-dat
 
 Markers are recognized at the start of a line in **user messages only** (Claude's responses are not scanned).
 
+> **Revised (implemented).** The original relative-only set (`/sibling`,
+> `/child`, `/parent`, `/root`) was replaced with an **address-by-name** model: a
+> single absolute `/node` path plus relative `/child`/`/sibling`, a `>` path
+> separator, and a visible pointer ring. This removed the one-marker-per-line
+> footgun and the move-vs-create ambiguity. The table below is the current spec.
+
 | Marker | Effect |
 |---|---|
-| `/sibling <name>` | Close current segment; start a new sibling topic under current node's parent. |
-| `/child <name>` | Start a new topic as a child of the current node. |
-| `/parent` | Move current pointer to parent node. |
-| `/root` | Move current pointer to the root node. |
+| `/node <path>` | Absolute path from root, `>`-separated (`/node Auth > Tokens`). Each segment is re-entered if it exists, else created; pointer moves to the deepest. Empty `/node` → root. |
+| `/child <name>` | Relative: a child of the current node. Accepts a `>` path. No name → "Untitled topic". |
+| `/sibling <name>` | Relative: a child of the current node's parent (top-level at root). Accepts a `>` path. |
 | `/star` or `/bookmark <optional note>` | Bookmark the previous message (the one just received). |
 
-The structural markers (`/sibling`, `/child`, `/parent`) use tree-relationship vocabulary for a consistent mental model: `/child` goes down, `/parent` goes up, `/sibling` stays level.
+A node is **addressed by name** (absolute or relative) and you go there, creating
+only if absent — so re-using a path re-enters the same node (messages can be added
+later). Node identity is the name-path: `hash(conversationId + parentId + name)`.
 
 ### Parser behavior
-- A line matches the regex `^\/(\w+)(?:\s+(.*))?$` and the command must be in the allowed list (`sibling`, `child`, `parent`, `root`, `star`, `bookmark`). Otherwise the line is plain text.
+- A line matches the regex `^\/(\w+)(?:\s+(.*))?$` and the command must be in the allowed list (`node`, `child`, `sibling`, `star`, `bookmark`). Otherwise the line is plain text.
 - Markers process before remaining message content; non-marker content in the same message belongs to whatever node is current after marker processing.
 - Multiple markers in one message are processed in order.
+- Names match **case-insensitively, trimmed**; the first occurrence's casing is the displayed title.
 - **Edge cases:**
-  - `/parent` from root: stay at root, no-op.
-  - `/root` when already at root: no-op.
-  - `/sibling` or `/child` with no name: use fallback title "Untitled topic" with `titleSource: "fallback"`.
+  - Empty `/node` (or all-empty path): move pointer to root (no-op at root).
+  - `/child`/`/sibling` with no name: fallback title "Untitled topic" with `titleSource: "fallback"`; always a new node (not addressable).
   - `/star` as the first message: skip silently (no previous message).
-  - Unknown command (e.g. `/siblng`): treat as plain text.
+  - Unknown command (e.g. `/nde`): treat as plain text.
 - Messages with markers should have markers stripped from the visible display in the tree panel (not in the actual Claude.ai DOM).
 
 ---
