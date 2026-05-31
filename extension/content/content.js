@@ -75,15 +75,19 @@
       return { uuid: m.uuid, role: m.role, text: m.text, index: m.index };
     });
 
-    var parsed = CTV.parser.parseConversation({
-      conversationId: conversationId,
-      conversationTitle: conversationTitle,
-      messages: messages
-    });
-
-    // 5. Load stored overrides → merge → render → persist (PLAN §7).
+    // 4. Load stored overrides FIRST — markers resolve against the tree the user
+    // currently sees (renames/drags), so the parser needs the overrides.
     CTV.storage.getConversation(conversationId).then(function (stored) {
       var overrides = (stored && stored.overrides) || CTV.merge.emptyOverrides();
+
+      var parsed = CTV.parser.parseConversation({
+        conversationId: conversationId,
+        conversationTitle: conversationTitle,
+        messages: messages,
+        overrides: overrides
+      });
+
+      // 5. Merge → render → persist (PLAN §7).
       var merged = CTV.merge.applyOverrides(parsed, overrides);
 
       // Only render if this payload is for the conversation the user is now

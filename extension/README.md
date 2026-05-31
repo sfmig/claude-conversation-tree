@@ -229,6 +229,10 @@ how do I expire idle sessions?
 - **Unnamed** topics (`/child` with no name) are always new (can't be addressed).
 - The tree marks the current node — where the next un-marked message will land —
   with a **pointer ring** on its dot and a **bold label**.
+- **Markers address the tree you currently see.** If you rename a topic in the UI
+  (A→APPLE), `/node APPLE > B` works; if you drag a topic under another, `/up`
+  climbs to where you dragged it and you can address it via its new path. The
+  original marker name/path still re-enters the same node too (so nothing breaks).
 - Caveat: ids key off marker *text*, so editing a marker's name in the
   conversation changes that node's id (orphaning its stored overrides once).
   Renaming/moving via the **UI** doesn't touch marker text, so UI edits are safe.

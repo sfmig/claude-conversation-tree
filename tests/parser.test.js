@@ -584,3 +584,83 @@ test("realistic conversation parses into the expected topic tree", () => {
   assert.equal(bms[0].messageUuid, "msg_3");
   assert.equal(bms[0].nodeId, tokensId);
 });
+
+// ---- override-aware resolution (markers resolve against the tree you see) ---
+
+const titleOf = (r, id) => r.tree.nodes[id].title;
+const childIdByTitle = (r, parentId, t) =>
+  node(r, parentId).childIds.find((id) => titleOf(r, id) === t);
+
+test("rename: a node is addressable by its current (renamed) name", () => {
+  const base = run([human("/node A > B\nq")]);
+  const aId = node(base, ROOT_ID).childIds[0];
+  const overrides = { nodeOverrides: { [aId]: { title: "APPLE" } }, messageOverrides: {} };
+  const r = run([
+    human("/node A > B\nq"),
+    human("/node APPLE > C\nc")   // address A by its renamed name
+  ], { overrides });
+  // no duplicate A at root
+  assert.equal(node(r, ROOT_ID).childIds.length, 1);
+  assert.equal(node(r, ROOT_ID).childIds[0], aId);
+  // C created under A (= APPLE)
+  const cId = childIdByTitle(r, aId, "C");
+  assert.ok(cId);
+  assert.equal(r.tree.messageIndex["msg_1"], cId);
+});
+
+test("rename: the original name still re-enters the node (no split)", () => {
+  const base = run([human("/node A\nq")]);
+  const aId = node(base, ROOT_ID).childIds[0];
+  const overrides = { nodeOverrides: { [aId]: { title: "APPLE" } }, messageOverrides: {} };
+  const r = run([
+    human("/node A\nq1"),
+    human("/node A\nq2")   // old name typed again after rename
+  ], { overrides });
+  assert.equal(node(r, ROOT_ID).childIds.length, 1);
+  assert.ok(node(r, aId).messageUuids.includes("msg_0"));
+  assert.ok(node(r, aId).messageUuids.includes("msg_1"));
+});
+
+test("reparent: /up climbs the effective (dragged) parent", () => {
+  const base = run([human("/node A > B\nb"), human("/node C\nc")]);
+  const aId = childIdByTitle(base, ROOT_ID, "A");
+  const bId = node(base, aId).childIds[0];
+  const cId = childIdByTitle(base, ROOT_ID, "C");
+  const overrides = { nodeOverrides: { [bId]: { parentId: cId } }, messageOverrides: {} };
+  const r = run([
+    human("/node A > B\nb"),
+    human("/node C\nc"),
+    human("/node A > B\nin B"),  // pointer at B (re-entered via hash)
+    human("/up\nafter up")        // up from B → effective parent C
+  ], { overrides });
+  assert.equal(r.tree.messageIndex["msg_3"], cId);
+});
+
+test("reparent: address the dragged node via its new parent path", () => {
+  const base = run([human("/node A > B\nb"), human("/node C\nc")]);
+  const aId = childIdByTitle(base, ROOT_ID, "A");
+  const bId = node(base, aId).childIds[0];
+  const cId = childIdByTitle(base, ROOT_ID, "C");
+  const overrides = { nodeOverrides: { [bId]: { parentId: cId } }, messageOverrides: {} };
+  const r = run([
+    human("/node A > B\nb"),
+    human("/node C\nc"),
+    human("/node C > B\nvia new path")
+  ], { overrides });
+  // re-enters the existing B (no duplicate), message attaches to it
+  assert.equal(r.tree.messageIndex["msg_2"], bId);
+  assert.equal(Object.values(r.tree.nodes).filter((n) => n.title === "B").length, 1);
+});
+
+test("two siblings with the same current name → first match wins (deterministic)", () => {
+  const base = run([human("/node A\na"), human("/node Z\nz")]);
+  const aId = childIdByTitle(base, ROOT_ID, "A");
+  const zId = childIdByTitle(base, ROOT_ID, "Z");
+  const overrides = { nodeOverrides: { [zId]: { title: "A" } }, messageOverrides: {} };
+  const r = run([
+    human("/node A\na"),
+    human("/node Z\nz"),
+    human("/node A\nwhich one?")
+  ], { overrides });
+  assert.equal(r.tree.messageIndex["msg_2"], aId); // A (created first) wins
+});

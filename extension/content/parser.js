@@ -138,6 +138,10 @@
     var conversationId = input.conversationId;
     var conversationTitle = input.conversationTitle || "Conversation";
     var messages = input.messages || [];
+    // User overrides (rename/reparent/delete) make markers resolve against the
+    // tree the user currently sees. Optional; defaults to none.
+    var overrides = input.overrides || {};
+    var nodeOv = overrides.nodeOverrides || {};
 
     var nodes = {};
     nodes[ROOT_ID] = {
@@ -173,13 +177,47 @@
       return id;
     }
 
+    // ---- override-aware resolution -----------------------------------------
+    // A node's CURRENT title/parent reflects the user's UI edits (overrides), so
+    // markers resolve against the tree the user actually sees.
+    function effectiveTitle(id) {
+      var ov = nodeOv[id];
+      return (ov && typeof ov.title === "string" && ov.title) ? ov.title : (nodes[id] ? nodes[id].title : "");
+    }
+    function isDeleted(id) {
+      return !!(nodeOv[id] && nodeOv[id].deleted);
+    }
+    function effectiveParent(id) {
+      var ov = nodeOv[id];
+      if (ov && typeof ov.parentId === "string" && nodes[ov.parentId] && !isDeleted(ov.parentId)) {
+        return ov.parentId;
+      }
+      return (nodes[id] && nodes[id].parentId) || ROOT_ID;
+    }
+    // Existing children of `parentId` in the EFFECTIVE (post-override) tree.
+    function effectiveChildren(parentId) {
+      var out = [];
+      Object.keys(nodes).forEach(function (id) {
+        if (id === ROOT_ID || isDeleted(id)) return;
+        if (effectiveParent(id) === parentId) out.push(id);
+      });
+      return out;
+    }
+
     // Re-enter the named child of `parentId` if it already exists, otherwise
     // create it. Unnamed topics are always new and unique.
     function resolveOrCreate(rawTitle, parentId, markerMsgUuid, lineIndex) {
       var name = (rawTitle || "").trim();
       if (name) {
-        var id = namedNodeId(conversationId, parentId, normalizeName(name));
-        if (nodes[id]) return id; // re-enter existing same-named child
+        // 1. Effective-name lookup: a current child titled like `name`.
+        var norm = normalizeName(name);
+        var kids = effectiveChildren(parentId);
+        for (var i = 0; i < kids.length; i++) {
+          if (normalizeName(effectiveTitle(kids[i])) === norm) return kids[i];
+        }
+        // 2. Hash fallback: re-enter by original name, else create.
+        var id = namedNodeId(conversationId, parentId, norm);
+        if (nodes[id]) return id;
         return createNode(id, name, "marker", parentId);
       }
       var uid = unnamedNodeId(conversationId, markerMsgUuid, lineIndex);
@@ -229,19 +267,19 @@
           currentNodeId = applyRelative(marker.arg, currentNodeId, message, marker.lineIndex);
           break;
         case "sibling": {
-          // Relative: descend from the current node's parent (top-level at root).
-          var parentId = nodes[currentNodeId].parentId || ROOT_ID;
+          // Relative: descend from the current node's EFFECTIVE parent.
+          var parentId = currentNodeId === ROOT_ID ? ROOT_ID : effectiveParent(currentNodeId);
           currentNodeId = applyRelative(marker.arg, parentId, message, marker.lineIndex);
           break;
         }
         case "up": {
-          // Pure pointer-move up N levels (default 1), clamped at root.
+          // Pure pointer-move up N levels (default 1) along EFFECTIVE parents,
+          // clamped at root — so /up follows UI drag-reparents.
           var n = parseInt(marker.arg, 10);
           if (!(n >= 1)) n = 1;
           for (var k = 0; k < n; k++) {
-            var up = nodes[currentNodeId].parentId;
-            if (!up) break; // at root
-            currentNodeId = up;
+            if (currentNodeId === ROOT_ID) break;
+            currentNodeId = effectiveParent(currentNodeId);
           }
           break;
         }
