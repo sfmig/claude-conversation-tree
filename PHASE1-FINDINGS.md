@@ -154,13 +154,39 @@ cannot affect parsing** — it can only degrade highlighting of off-screen
 messages, which we handle with scroll-to-render later. This de-risks the whole
 parser phase.
 
-### R5 — Branch/edit handling: trust `rendering_mode=messages` (PLAN §9, §13)
+### R5 — Branch/edit handling — RESOLVED (PLAN §9, §13)
 
-This conversation returned a single linear active branch. Recommendation: rely
-on `rendering_mode=messages` to give us the active path and treat it as linear
-for v1 (sort by `index`). **To verify:** behavior on a conversation with edits/
-regenerations (does it still return one flat path, or multiple children?). Added
-to the open-questions list.
+The first probed conversation had no edits, so it returned a single linear branch
+and looked safe. **Verified on an edited conversation** (probed each endpoint
+variant directly in the console), the real behavior is:
+
+| Variant | Result |
+|---|---|
+| `?tree=True&rendering_mode=messages` | **all branches** (every edit + regeneration) |
+| `?tree=True&rendering_mode=raw` | **all branches** |
+| `?rendering_mode=messages` | single flat active branch |
+| `?rendering_mode=raw` | single flat active branch |
+| bare | single flat active branch |
+
+**`tree=True` is the trigger** for a multi-branch payload. This was a live bug:
+`api-client.directFetch` requested `?tree=True&rendering_mode=messages` *first*,
+so `normalize()` flattened all branches in array order — markers got attributed
+to off-branch/superseded messages (the "nodes linked to untagged messages" report).
+
+**Active-leaf field exists:** the top-level body carries
+`current_leaf_message_uuid`. Walking up `parent_message_uuid` from that leaf
+reconstructs exactly the active branch (latest version of every edited message),
+regardless of how many branches the payload contains.
+
+**Fix (implemented):**
+- `normalize()` reduces any payload to the active branch via
+  `current_leaf_message_uuid` (root→leaf), re-stamping `index` as branch position;
+  falls back to `index` sort when no leaf pointer is present.
+- `directFetch` no longer sends `tree=True` (lean active-branch payloads); the
+  leaf-walk in `normalize()` also covers a hooked `tree=True` payload from the app.
+
+Consequence: editing a message to add/change a marker keyword now files it
+correctly, because the edited version is the one on the active branch.
 
 ### R6 — Sibling ordering source exists (PLAN §8)
 

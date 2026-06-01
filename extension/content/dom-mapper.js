@@ -155,14 +155,14 @@
     return normalizeText((u || el).textContent).slice(0, 80);
   }
 
-  // Link API messages to DOM elements via greedy alignment.
+  // Link API messages to DOM elements.
   //
-  // The rendered turn containers are an in-order SUBSEQUENCE of the API message
-  // list (Claude virtualizes off-screen turns). We walk both in order: user
-  // turns are anchored by text (reliable — user text isn't reformatted), and
-  // assistant turns are filled by role/order between anchors. Each user anchor
-  // re-syncs the message pointer, so any miscount stays local. Messages with no
-  // rendered turn (off-screen) are simply left unmapped.
+  // Rendered turns are NEITHER 1:1 with messages (a single assistant message can
+  // render as several `data-test-render-count` containers) NOR complete (Claude
+  // virtualizes off-screen turns). So we delegate to the pure dom-align module:
+  // it anchors USER turns by their reliable text (resyncing a monotonic pointer
+  // so multi-div assistants / virtualized turns can't desync the anchors), then
+  // fills the bounded gaps by role + order. Off-screen messages stay unmapped.
   function correlate(normalized) {
     if (!normalized || !normalized.ok || !normalized.messages.length) {
       console.warn(TAG, "no normalised messages to correlate against yet");
@@ -171,33 +171,32 @@
     lastNormalized = normalized;
 
     var msgs = orderedMessages(normalized);
-    var turns = Array.prototype.slice.call(document.querySelectorAll(TURN_SELECTOR));
+    var turnEls = Array.prototype.slice.call(document.querySelectorAll(TURN_SELECTOR));
     var total = msgs.length;
 
-    function nextOfRole(from, role) {
-      for (var j = from; j < msgs.length; j++) if (msgs[j].role === role) return j;
-      return -1;
-    }
-    function nextHumanByText(from, key) {
-      for (var j = from; j < msgs.length; j++) {
-        if (msgs[j].role !== "human") continue;
-        var mk = normalizeText(msgs[j].text).slice(0, 80);
-        if (mk === key || (key && mk && (mk.indexOf(key) === 0 || key.indexOf(mk) === 0))) return j;
-      }
-      return -1;
-    }
-
-    map.clear();
-    var i = 0, matched = 0;
-    turns.forEach(function (el) {
+    // Project messages + DOM turns to the pure aligner's input contract.
+    var msgInput = msgs.map(function (m) {
+      return { role: m.role, key: normalizeText(m.text).slice(0, 80) };
+    });
+    var turnInput = turnEls.map(function (el) {
       var role = turnRole(el);
-      var k = role === "human" ? nextHumanByText(i, turnText(el)) : -1;
-      if (k === -1) k = nextOfRole(i, role); // fallback: next of this role
-      if (k === -1) return;                  // no remaining message of this role
-      var uuid = msgs[k].uuid;
-      el.setAttribute(DATA_UUID_ATTR, uuid);
-      map.set(uuid, el);
-      i = k + 1;
+      return { role: role, key: role === "human" ? turnText(el) : "" };
+    });
+
+    var mapping = CTV.domAlign.alignTurns(msgInput, turnInput);
+
+    // Clear stale tags from a previous pass before re-tagging (correlate may run
+    // many times as the DOM mutates; otherwise old data-ctv-uuid values linger
+    // and break message→node clicks).
+    turnEls.forEach(function (el) { el.removeAttribute(DATA_UUID_ATTR); });
+    map.clear();
+
+    var matched = 0;
+    mapping.forEach(function (mi, ti) {
+      if (mi < 0) return;
+      var uuid = msgs[mi].uuid;
+      turnEls[ti].setAttribute(DATA_UUID_ATTR, uuid);
+      map.set(uuid, turnEls[ti]);
       matched++;
     });
 
@@ -207,7 +206,7 @@
     recorrelateListeners.forEach(function (fn) {
       try { fn(); } catch (e) { console.error(TAG, e); }
     });
-    return { matched: matched, total: total, strategy: "greedy" };
+    return { matched: matched, total: total, strategy: "anchor+fill" };
   }
 
   function scheduleRecorrelate() {

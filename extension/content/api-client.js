@@ -79,22 +79,6 @@
     return v;
   }
 
-  // Extract a message's text. Claude's `rendering_mode=messages` payload puts
-  // the prose in a `content` array of blocks ({type, text, ...}); the top-level
-  // `text` field is often empty. Prefer whichever yields more text so we work
-  // regardless of which field is populated.
-  function extractText(m) {
-    var parts = [];
-    if (Array.isArray(m.content)) {
-      m.content.forEach(function (b) {
-        if (b && typeof b === "object" && typeof b.text === "string") parts.push(b.text);
-      });
-    }
-    var fromBlocks = parts.join("\n");
-    var top = typeof m.text === "string" ? m.text : "";
-    return fromBlocks.length >= top.length ? fromBlocks : top;
-  }
-
   // Flat, paste-friendly description of one raw message — for the findings
   // report (the console collapses nested objects, so we stringify).
   function describeMessage(m) {
@@ -114,37 +98,10 @@
     };
   }
 
-  // ---- normalisation: turn the payload into a linear message list ----------
-  // We don't yet *know* the real field names, so try the likely candidates and
-  // record which one worked. For v1 we treat the conversation as linear.
+  // Normalisation (active-branch selection + parser input contract) lives in the
+  // pure, unit-tested api-normalize module.
   function normalize(body) {
-    if (!body || typeof body !== "object") return null;
-
-    var arr =
-      body.chat_messages ||
-      body.messages ||
-      body.chatMessages ||
-      null;
-    if (!Array.isArray(arr)) return { ok: false, reason: "no recognised message array", topLevelKeys: Object.keys(body) };
-
-    var messages = arr.map(function (m) {
-      var role = m.sender || m.role || m.author || null; // "human"/"assistant"?
-      var text = extractText(m);
-      return {
-        uuid: m.uuid || m.id || null,
-        parentUuid: m.parent_message_uuid || m.parentMessageUuid || null,
-        index: typeof m.index === "number" ? m.index : null,
-        role: role,
-        text: typeof text === "string" ? text : ""
-      };
-    });
-
-    return {
-      ok: true,
-      arrayField: body.chat_messages ? "chat_messages" : body.messages ? "messages" : "chatMessages",
-      count: messages.length,
-      messages: messages
-    };
+    return CTV.apiNormalize.normalize(body);
   }
 
   // Which conversation a captured payload belongs to (from the API URL), so a
@@ -179,7 +136,9 @@
 
     if (normalized && normalized.ok) {
       console.log(
-        "Normalised:", normalized.count, "messages from field '" + normalized.arrayField + "'"
+        "Normalised:", normalized.count, "active-branch messages",
+        "(of", normalized.rawCount, "raw) from field '" + normalized.arrayField + "'",
+        "via", normalized.activeBranchVia
       );
       console.table(
         normalized.messages.slice(0, 8).map(function (m) {
@@ -232,8 +191,12 @@
 
     var base =
       "/api/organizations/" + state.orgId + "/chat_conversations/" + convId;
+    // Deliberately WITHOUT tree=True: those payloads include every edit/
+    // regeneration branch (confirmed empirically). These variants return the
+    // flat active branch directly; normalize() also reconstructs it from
+    // current_leaf_message_uuid, so a hooked tree=True payload is handled too.
     var candidates = [
-      base + "?tree=True&rendering_mode=messages",
+      base + "?rendering_mode=messages",
       base + "?rendering_mode=raw",
       base
     ];
