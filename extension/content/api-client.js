@@ -24,7 +24,8 @@
   var state = {
     orgId: null, // discovered from hooked API URLs
     lastConversation: null, // { url, body, normalized } — in-memory only
-    listeners: [] // fns(conversationData)
+    listeners: [], // fns(conversationData)
+    mutationListeners: [] // fns({conversationId}) — fired on in-place edits
   };
 
   function getConversationIdFromUrl() {
@@ -177,6 +178,12 @@
         }
       } else if (d.kind === "conversation") {
         ingest(d.payload);
+      } else if (d.kind === "conversation-mutated") {
+        // The app edited/regenerated a message in place (no GET). Let listeners
+        // decide whether to re-fetch + re-parse.
+        state.mutationListeners.forEach(function (fn) {
+          try { fn(d.payload || {}); } catch (e) { console.error(TAG, e); }
+        });
       }
     });
   }
@@ -221,8 +228,21 @@
     if (state.lastConversation) fn(state.lastConversation);
   }
 
+  // Subscribe to in-place conversation edits (a /completion under a conversation,
+  // forwarded by the interceptor). Used to trigger a live re-parse.
+  function onConversationMutated(fn) {
+    state.mutationListeners.push(fn);
+  }
+
   function init() {
     installHookListener();
+    // The interceptor (document_start) may have already forwarded the initial
+    // conversation GET + org URL before this listener existed (we load at
+    // document_idle). Ping it to replay anything we missed, so the tree renders
+    // on first load instead of only after an SPA navigation.
+    try {
+      window.postMessage({ source: "ctv-client", kind: "ready" }, window.location.origin);
+    } catch (e) { /* non-fatal: directFetch retry still covers most cases */ }
     console.debug(TAG, "ready; conversation id =", getConversationIdFromUrl());
   }
 
@@ -230,6 +250,7 @@
     init: init,
     getConversationIdFromUrl: getConversationIdFromUrl,
     onConversation: onConversation,
+    onConversationMutated: onConversationMutated,
     directFetch: directFetch,
     getState: function () { return state; }
   };

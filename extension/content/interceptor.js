@@ -27,11 +27,37 @@
     return /\/chat_conversations\/[0-9a-f-]+/i.test(url) &&
            !/\/(completion|title|chat_message_warning)/i.test(url);
   }
+  // A write that changes the conversation's messages: a completion (a new turn,
+  // a regenerate, or a user-message edit — all stream through /completion). We
+  // use this to know the conversation changed in place, since the app updates
+  // its own state without re-GETting (so isConversationEndpoint never fires).
+  function isConversationMutation(url, method) {
+    return !/^get$/i.test(method) &&
+           /\/chat_conversations\/[0-9a-f-]+/i.test(url) &&
+           /completion/i.test(url);
+  }
+  function conversationIdFromUrl(url) {
+    var m = (url || "").match(/\/chat_conversations\/([0-9a-f-]+)/i);
+    return m ? m[1] : null;
+  }
   function isApiUrl(url) {
     return /\/api\//.test(url);
   }
 
+  // We run at document_start but the isolated-world scripts (api-client) load at
+  // document_idle. On a fresh/cached load the app's conversation GET — and the
+  // org-bearing API URL — can fire before api-client's message listener exists,
+  // so those posts are lost and the tree never renders until an SPA navigation
+  // re-triggers a GET. We cache the last of each so we can replay on request.
+  var cached = { apiUrl: null, conversation: null };
+
   function post(kind, payload) {
+    if (kind === "conversation") {
+      cached.conversation = payload;
+    } else if (kind === "api-url" && !cached.apiUrl &&
+               /\/organizations\//.test((payload && payload.url) || "")) {
+      cached.apiUrl = payload; // carries the org id api-client needs
+    }
     try {
       window.postMessage(
         { source: "ctv-interceptor", kind: kind, payload: payload },
@@ -42,6 +68,16 @@
       console.warn(TAG, "postMessage failed", e);
     }
   }
+
+  // When api-client comes up (document_idle) it pings us; replay whatever it may
+  // have missed so the tree renders on first load without an SPA navigation.
+  window.addEventListener("message", function (event) {
+    if (event.source !== window) return;
+    var d = event.data;
+    if (!d || d.source !== "ctv-client" || d.kind !== "ready") return;
+    if (cached.apiUrl) post("api-url", cached.apiUrl);
+    if (cached.conversation) post("conversation", cached.conversation);
+  });
 
   function noteUrl(method, url) {
     if (isApiUrl(url)) post("api-url", { method: method, url: url });
@@ -57,6 +93,9 @@
         (input && input.method) ||
         "GET";
       noteUrl(method, url);
+      if (isConversationMutation(url, method)) {
+        post("conversation-mutated", { conversationId: conversationIdFromUrl(url), url: url, method: method });
+      }
 
       var p = origFetch.apply(this, arguments);
 
@@ -103,6 +142,9 @@
       var url = xhr.__ctvUrl || "";
       var method = xhr.__ctvMethod || "GET";
       noteUrl(method, url);
+      if (isConversationMutation(url, method)) {
+        post("conversation-mutated", { conversationId: conversationIdFromUrl(url), url: url, method: method });
+      }
 
       if (isConversationEndpoint(url) && /^get$/i.test(method)) {
         xhr.addEventListener("load", function () {

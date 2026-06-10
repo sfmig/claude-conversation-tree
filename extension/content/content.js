@@ -207,9 +207,35 @@
     CTV.domMapper.init();
     CTV.apiClient.init();
     CTV.apiClient.onConversation(onConversationData);
+    CTV.apiClient.onConversationMutated(onConversationMutated);
 
     installNavWatcher();
     refresh("initial load");
+  }
+
+  // ---- live re-parse on in-place edits ------------------------------------
+  // Editing/regenerating a message updates the app in place without a GET, so
+  // neither the hook nor refresh() (guarded on currentConversationId) fires.
+  // On a /completion mutation we force a re-fetch so adding OR removing a marker
+  // is reflected without a manual reload. Debounced to coalesce the burst, with
+  // a follow-up pass once the regenerated reply has settled (final text → correct
+  // correlation + highlighting).
+  var liveRefetchTimer = null;
+  function onConversationMutated(payload) {
+    var convId = CTV.apiClient.getConversationIdFromUrl();
+    if (!convId) return;
+    if (payload && payload.conversationId && payload.conversationId !== convId) return;
+    if (liveRefetchTimer) clearTimeout(liveRefetchTimer);
+    liveRefetchTimer = setTimeout(function () {
+      forceRefetch(convId);
+      setTimeout(function () { forceRefetch(convId); }, 4000);
+    }, 1500);
+  }
+  function forceRefetch(convId) {
+    if (CTV.apiClient.getConversationIdFromUrl() !== convId) return; // navigated away
+    CTV.apiClient.directFetch().then(function (r) {
+      if (!(r && r.ok)) console.debug(TAG, "live re-parse fetch failed:", r && r.reason);
+    });
   }
 
   // ---- conversation refresh ------------------------------------------------
