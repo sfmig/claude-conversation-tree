@@ -75,6 +75,12 @@
       return { uuid: m.uuid, role: m.role, text: m.text, index: m.index };
     });
 
+    // Snapshot the previous render's message→node index BEFORE it's replaced —
+    // used below to detect an in-place edit and follow it.
+    var prevIndex = (conversationId === currentConversationId && currentResult)
+      ? currentResult.tree.messageIndex
+      : null;
+
     // 4. Load stored overrides FIRST — markers resolve against the tree the user
     // currently sees (renames/drags), so the parser needs the overrides.
     CTV.storage.getConversation(conversationId).then(function (stored) {
@@ -103,6 +109,32 @@
           Object.keys(merged.tree.nodes).length, "nodes,",
           Object.keys(parsed.bookmarks).length, "marker bookmarks");
         renderTree(merged);
+
+        // Reconcile message highlights with the re-parsed tree. renderTree only
+        // swaps the parse result; the sticky re-apply path only ADDS the active
+        // node's current messages — it never clears stale highlights or
+        // recomputes the color. And on an in-place edit the selection should
+        // FOLLOW the edited message: adding /node selects the new node, removing
+        // it selects the node the message fell back into.
+        var followId = followEditNode(prevIndex, messages, merged);
+        var active = CTV.treePanel.getActiveNode && CTV.treePanel.getActiveNode();
+        if (followId) {
+          // noScroll: the user is sitting at the just-edited message.
+          CTV.treePanel.setActiveNode(followId);
+          CTV.highlighting.highlightNodeMessages(followId, true);
+        } else if (active && merged.tree.nodes[active]) {
+          // Not an edit (plain append / settle pass): re-issue the existing
+          // selection so stale paint is cleared and the color is fresh.
+          CTV.highlighting.highlightNodeMessages(active, true);
+        } else {
+          // Active node vanished and there's nothing to follow — drop lingering
+          // highlights so no message keeps an old color.
+          CTV.highlighting.clearMessageHighlights();
+        }
+        console.debug(TAG, "live highlight —",
+          followId ? "follow " + followId.slice(0, 8)
+                   : (active && merged.tree.nodes[active]) ? "reconcile " + active.slice(0, 8)
+                   : "clear");
       } else {
         console.debug(TAG, "stale payload for", conversationId, "— persisting only");
       }
@@ -111,6 +143,28 @@
     }).catch(function (e) {
       console.error(TAG, "persist/merge failed", e);
     });
+  }
+
+  // An in-place edit rewrites the active branch: uuids from the previous render
+  // vanish and the edited message reappears under a fresh uuid. Return the node
+  // the newest such user message now belongs to (the node the selection should
+  // follow), or null when this re-parse isn't an edit (first render, plain
+  // append, regenerate-only — regenerates replace only assistant uuids, and
+  // assistant messages can't carry markers, so there's nothing to follow).
+  function followEditNode(prevIndex, messages, merged) {
+    if (!prevIndex) return null;
+    var present = {};
+    messages.forEach(function (m) { present[m.uuid] = true; });
+    var vanished = Object.keys(prevIndex).some(function (u) { return !present[u]; });
+    if (!vanished) return null;
+    for (var i = messages.length - 1; i >= 0; i--) {
+      var m = messages[i];
+      if ((m.role === "human" || m.role === "user") && !prevIndex[m.uuid]) {
+        var nodeId = merged.tree.messageIndex[m.uuid];
+        return (nodeId && merged.tree.nodes[nodeId]) ? nodeId : null;
+      }
+    }
+    return null;
   }
 
   // The merged tree is a cache; overrides remain the source of truth.
