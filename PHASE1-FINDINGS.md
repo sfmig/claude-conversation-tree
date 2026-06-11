@@ -154,6 +154,7 @@ cannot affect parsing** — it can only degrade highlighting of off-screen
 messages, which we handle with scroll-to-render later. This de-risks the whole
 parser phase.
 
+
 ### R5 — Branch/edit handling — RESOLVED (PLAN §9, §13)
 
 The first probed conversation had no edits, so it returned a single linear branch
