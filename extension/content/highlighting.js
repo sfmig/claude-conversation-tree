@@ -26,6 +26,7 @@
   var messageColor = null;      // its node's colour
   var listenerInstalled = false;
   var minimapEl = null;     // right-edge tick strip for the active node
+  var minimapFrac = {};     // uuid → last-known TRUE scroll fraction (once rendered)
   var stickySuspendedUntil = 0; // sticky repaint paused while an edit's re-parse is in flight
 
   // The re-parse outcome always lands here (directly or via
@@ -126,32 +127,65 @@
     return (c === document.scrollingElement || c === document.documentElement || c === document.body)
       ? 0 : c.getBoundingClientRect().top;
   }
-  // Scroll the target so its top sits SCROLL_MARGIN below the scrollport top, and
-  // KEEP re-converging — Claude's virtualization shifts layout above the target
-  // for a while after the scroll, so one shot misaligns. Re-measure + correct
-  // until stable (or out of tries). This is what made the manual 2nd click work.
-  function alignToTop(uuid, tries) {
-    var el = CTV.domMapper.getElement(uuid);
-    if (!el) return;
-    var c = scrollContainerFor(el);
-    var delta = (el.getBoundingClientRect().top - containerTop(c)) - SCROLL_MARGIN;
-    if (Math.abs(delta) > 2) c.scrollTo({ top: c.scrollTop + delta, behavior: "smooth" });
-    if (activeNodeId) { applyHighlights(); renderMinimap(activeNodeId); }
-    if (tries <= 0) return;
-    // Re-check after the smooth scroll has had time to finish; correct again if
-    // Claude's virtualization shifted the layout. Stops once stable.
-    setTimeout(function () {
-      CTV.domMapper.recorrelate();
-      var e2 = CTV.domMapper.getElement(uuid);
-      if (!e2) return;
-      var c2 = scrollContainerFor(e2);
-      var d2 = (e2.getBoundingClientRect().top - containerTop(c2)) - SCROLL_MARGIN;
-      if (Math.abs(d2) <= 3) { // settled
-        if (activeNodeId) { applyHighlights(); renderMinimap(activeNodeId); }
-        return;
-      }
-      alignToTop(uuid, tries - 1);
-    }, 400);
+  // Scroll the target so its top sits SCROLL_MARGIN below the scrollport top.
+  //
+  // The hard part: Claude's virtualization keeps shifting layout above the
+  // target for a while after we start scrolling, so the destination is a MOVING
+  // target. Native scrollTo({behavior:"smooth"}) commits to a fixed scrollTop up
+  // front, lands wrong, and then needs re-issued corrections that fight the
+  // in-flight animation — the visible "bounce".
+  //
+  // Instead we run our own rAF loop that re-measures the target's LIVE position
+  // every frame and eases a fraction of the remaining distance toward it. It
+  // continuously re-targets, so it smoothly *follows* the moving element and
+  // converges without overshoot — one continuous glide, no bounce. A short
+  // delayed verify catches layout that shifts only after the glide ends (e.g. a
+  // late virtualization pass); it re-glides smoothly rather than snapping.
+  var alignGen = 0;          // bumped per call so a newer align cancels older loops
+  function alignToTop(uuid, verifyTries) {
+    var gen = ++alignGen;
+    var startedAt = (window.performance && performance.now) ? performance.now() : Date.now();
+    var userInterrupted = false;
+    function onUserScroll() { userInterrupted = true; }
+    // Real user input cancels the glide (vs. layout/anchor shifts, which don't).
+    window.addEventListener("wheel", onUserScroll, { passive: true });
+    window.addEventListener("touchstart", onUserScroll, { passive: true });
+    function stop() {
+      window.removeEventListener("wheel", onUserScroll, { passive: true });
+      window.removeEventListener("touchstart", onUserScroll, { passive: true });
+    }
+    function now() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
+    function frame() {
+      if (gen !== alignGen || userInterrupted) { stop(); return; }
+      var el = CTV.domMapper.getElement(uuid);
+      if (!el) { stop(); scheduleVerify(); return; } // target virtualized out mid-glide
+      var c = scrollContainerFor(el);
+      var delta = (el.getBoundingClientRect().top - containerTop(c)) - SCROLL_MARGIN;
+      if (Math.abs(delta) <= 2 || now() - startedAt > 1500) { stop(); scheduleVerify(); return; }
+      var step = delta * 0.13;                // ease ~13% of the gap per frame
+      if (Math.abs(step) < 1) step = delta;   // land the last couple px at once
+      c.scrollTop += step;
+      requestAnimationFrame(frame);
+    }
+    function scheduleVerify() {
+      if (gen !== alignGen) return;
+      if (activeNodeId) { applyHighlights(); renderMinimap(activeNodeId); }
+      if (verifyTries <= 0 || userInterrupted) return;
+      setTimeout(function () {
+        if (gen !== alignGen || userInterrupted) return;
+        CTV.domMapper.recorrelate();
+        var el = CTV.domMapper.getElement(uuid);
+        if (!el) return;
+        var c = scrollContainerFor(el);
+        var d = (el.getBoundingClientRect().top - containerTop(c)) - SCROLL_MARGIN;
+        if (Math.abs(d) <= 3) { // stayed put — done
+          if (activeNodeId) { applyHighlights(); renderMinimap(activeNodeId); }
+          return;
+        }
+        alignToTop(uuid, verifyTries - 1); // layout drifted: glide to the new spot
+      }, 400);
+    }
+    requestAnimationFrame(frame);
   }
 
   // Page the conversation toward a target message that isn't rendered yet, then
@@ -160,7 +194,7 @@
     var el = CTV.domMapper.getElement(targetUuid);
     if (el) {
       applyHighlights();
-      alignToTop(targetUuid, 8);
+      alignToTop(targetUuid, 3);
       return;
     }
     if (tries <= 0) {
@@ -204,6 +238,50 @@
     ordered.forEach(function (u, i) { indexOf[u] = i; });
     var span = Math.max(ordered.length - 1, 1);
 
+    function trueFrac(el) {
+      var contentTop = el.getBoundingClientRect().top - rect.top + container.scrollTop;
+      return Math.max(0, Math.min(1, contentTop / denom));
+    }
+
+    // Anchors = the true scroll fraction of every currently-rendered message,
+    // ascending by index. Virtualized ticks interpolate between these so their
+    // position is consistent with where they'll actually render (messages have
+    // very uneven heights, so plain index spacing spreads them wrongly). We also
+    // remember each rendered message's true fraction (minimapFrac) so a tick
+    // that's been on screen once keeps its real position instead of drifting
+    // back to an estimate as you scroll toward it again.
+    var anchors = []; // [{ i, frac }]
+    if (denom > 0) {
+      ordered.forEach(function (u, i) {
+        var el = CTV.domMapper.getElement(u);
+        if (!el) return;
+        var f = trueFrac(el);
+        minimapFrac[u] = f;
+        anchors.push({ i: i, frac: f });
+      });
+    }
+
+    function fracForIndex(i) {
+      if (!anchors.length) return i / span; // nothing rendered: even fallback
+      var first = anchors[0];
+      var last = anchors[anchors.length - 1];
+      if (i <= first.i) {
+        return first.i > 0 ? Math.max(0, Math.min(1, first.frac * i / first.i)) : first.frac;
+      }
+      if (i >= last.i) {
+        if (span <= last.i) return last.frac;
+        return Math.max(0, Math.min(1, last.frac + (1 - last.frac) * (i - last.i) / (span - last.i)));
+      }
+      var lo = first, hi = last;
+      for (var k = 0; k < anchors.length; k++) {
+        if (anchors[k].i === i) return anchors[k].frac;
+        if (anchors[k].i < i) lo = anchors[k];
+        if (anchors[k].i > i) { hi = anchors[k]; break; }
+      }
+      return Math.max(0, Math.min(1,
+        lo.frac + (hi.frac - lo.frac) * (i - lo.i) / (hi.i - lo.i)));
+    }
+
     var strip = document.createElement("div");
     strip.className = "ctv-minimap";
     strip.style.top = rect.top + "px";
@@ -212,16 +290,18 @@
     node.messageUuids.forEach(function (uuid) {
       // Position by the message's SCROLL fraction so the tick lines up with the
       // native scrollbar thumb. Use the real content offset for rendered
-      // messages; fall back to index for virtualized ones (refined on scroll).
+      // messages; interpolate between rendered neighbours for virtualized ones
+      // (refined as more messages render in on scroll).
       var frac;
       var el = CTV.domMapper.getElement(uuid);
       if (el && denom > 0) {
-        var contentTop = el.getBoundingClientRect().top - rect.top + container.scrollTop;
-        frac = Math.max(0, Math.min(1, contentTop / denom));
+        frac = trueFrac(el);
+      } else if (minimapFrac[uuid] != null) {
+        frac = minimapFrac[uuid]; // pinned to where it really rendered before
       } else {
         var i = indexOf[uuid];
         if (i == null) return;
-        frac = i / span;
+        frac = fracForIndex(i);
       }
       var tick = document.createElement("div");
       tick.className = "ctv-minimap-tick";
@@ -236,6 +316,12 @@
     });
     document.body.appendChild(strip);
     minimapEl = strip;
+
+    // Keep the cache scoped to the current active branch: drop uuids from other
+    // conversations or vanished after an edit (so it can't grow without bound).
+    var live = {};
+    ordered.forEach(function (u) { if (minimapFrac[u] != null) live[u] = minimapFrac[u]; });
+    minimapFrac = live;
   }
 
   // noScroll = re-apply highlight + minimap without moving the conversation
