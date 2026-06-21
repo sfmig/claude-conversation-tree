@@ -4,6 +4,7 @@
   "private": true,
   "type": "commonjs",
   "description": "Organize Claude.ai conversations into a topic tree, locally and privately.",
+  "author": "S Minano",
   "license": "MIT",
   "scripts": {
     "test": "node --test \"tests/**/*.test.js\""
