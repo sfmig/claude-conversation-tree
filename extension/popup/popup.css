@@ -23,6 +23,13 @@
 .ctv-popup-muted {
   color: #6b7280;
 }
+.ctv-popup a {
+  color: #a855f7;
+  text-decoration: none;
+}
+.ctv-popup a:hover {
+  text-decoration: underline;
+}
 .ctv-popup code {
   background: #f3f4f6;
   padding: 1px 4px;

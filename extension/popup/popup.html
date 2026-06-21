@@ -4,18 +4,25 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="popup.css" />
-    <title>Claude Conversation Tree</title>
+    <title>ClaudeTOC</title>
   </head>
   <body>
     <div class="ctv-popup">
-      <h1 class="ctv-popup-title">Claude Conversation Tree</h1>
-      <p class="ctv-popup-version">v0.1.0 · Phase 1 (foundation)</p>
+      <h1 class="ctv-popup-title">ClaudeTOC</h1>
+      <p class="ctv-popup-version">v0.1.0 · Build a table of contents of your Claude chats</p>
       <p class="ctv-popup-note">
-        Open a conversation on <strong>claude.ai</strong> and check the page
-        console for the <code>[CTV] FINDINGS</code> report.
+        Type <code>/node Topic &gt; Subtopic</code> in a
+        message to initialise a section.
       </p>
       <p class="ctv-popup-note ctv-popup-muted">
-        The global bookmarks view will live here in a later phase.
+        For more, see:
+        <a
+          href="https://github.com/sfmig/claude-conversation-tree#how-to-create-a-toc"
+          target="_blank"
+          rel="noopener"
+          title="https://github.com/sfmig/claude-conversation-tree#how-to-create-a-toc"
+          >how to create a Claude TOC</a
+        >
       </p>
     </div>
     <script src="popup.js"></script>

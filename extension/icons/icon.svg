@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- ClaudeTOC — node tree, modeled on the side panel -->
+  <defs>
+    <linearGradient id="ctv-purple" gradientUnits="userSpaceOnUse" x1="36" y1="54" x2="78" y2="70">
+      <stop offset="0" stop-color="#1a9e8c"/>
+      <stop offset="0.3" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="ctv-coral" gradientUnits="userSpaceOnUse" x1="36" y1="90" x2="78" y2="108">
+      <stop offset="0" stop-color="#1a9e8c"/>
+      <stop offset="0.3" stop-color="#ff6f61"/>
+      <stop offset="1" stop-color="#ff6f61"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="8">
+    <!-- branches, drawn behind the spine so they emerge from the trunk -->
+    <path d="M36 46 C 36 70, 54 70, 78 70" stroke="url(#ctv-purple)"/>
+    <path d="M36 66 C 36 108, 54 108, 78 108" stroke="url(#ctv-coral)"/>
+    <!-- teal spine, no tail past the last branch -->
+    <line x1="36" y1="26" x2="36" y2="66" stroke="#1a9e8c"/>
+  </g>
+  <!-- nodes -->
+  <circle cx="78" cy="70" r="11" fill="#7c3aed"/>
+  <circle cx="78" cy="108" r="11" fill="#ff6f61"/>
+  <!-- teal root node, active (with ring) -->
+  <circle cx="36" cy="26" r="11" fill="#1a9e8c"/>
+  <circle cx="36" cy="26" r="17" fill="none" stroke="#1a9e8c" stroke-width="5"/>
+</svg>
