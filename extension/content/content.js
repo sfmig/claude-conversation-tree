@@ -116,25 +116,37 @@
         // recomputes the color. And on an in-place edit the selection should
         // FOLLOW the edited message: adding /node selects the new node, removing
         // it selects the node the message fell back into.
-        var followId = followEditNode(prevIndex, messages, merged);
-        var active = CTV.treePanel.getActiveNode && CTV.treePanel.getActiveNode();
-        if (followId) {
-          // noScroll: the user is sitting at the just-edited message.
-          CTV.treePanel.setActiveNode(followId);
-          CTV.highlighting.highlightNodeMessages(followId, true);
-        } else if (active && merged.tree.nodes[active]) {
-          // Not an edit (plain append / settle pass): re-issue the existing
-          // selection so stale paint is cleared and the color is fresh.
-          CTV.highlighting.highlightNodeMessages(active, true);
+        var follow = followEditNode(prevIndex, messages, merged);
+        var mutationPending = mutationPendingSince &&
+          (Date.now() - mutationPendingSince < 15000);
+        if (mutationPending && !follow.changed) {
+          // The refetch beat the server's branch switch: same uuids as the
+          // previous render. Repainting now would re-issue the OLD node's
+          // color onto the edited turn (and end the mutation pause) — keep
+          // waiting; the settle refetch brings the real change.
+          console.debug(TAG, "live highlight — unchanged payload during edit, awaiting settle");
         } else {
-          // Active node vanished and there's nothing to follow — drop lingering
-          // highlights so no message keeps an old color.
-          CTV.highlighting.clearMessageHighlights();
+          mutationPendingSince = 0;
+          var followId = follow.nodeId;
+          var active = CTV.treePanel.getActiveNode && CTV.treePanel.getActiveNode();
+          if (followId) {
+            // noScroll: the user is sitting at the just-edited message.
+            CTV.treePanel.setActiveNode(followId);
+            CTV.highlighting.highlightNodeMessages(followId, true);
+          } else if (active && merged.tree.nodes[active]) {
+            // Not an edit (plain append / settle pass): re-issue the existing
+            // selection so stale paint is cleared and the color is fresh.
+            CTV.highlighting.highlightNodeMessages(active, true);
+          } else {
+            // Active node vanished and there's nothing to follow — drop
+            // lingering highlights so no message keeps an old color.
+            CTV.highlighting.clearMessageHighlights();
+          }
+          console.debug(TAG, "live highlight —",
+            followId ? "follow " + followId.slice(0, 8)
+                     : (active && merged.tree.nodes[active]) ? "reconcile " + active.slice(0, 8)
+                     : "clear");
         }
-        console.debug(TAG, "live highlight —",
-          followId ? "follow " + followId.slice(0, 8)
-                   : (active && merged.tree.nodes[active]) ? "reconcile " + active.slice(0, 8)
-                   : "clear");
       } else {
         console.debug(TAG, "stale payload for", conversationId, "— persisting only");
       }
@@ -151,20 +163,30 @@
   // follow), or null when this re-parse isn't an edit (first render, plain
   // append, regenerate-only — regenerates replace only assistant uuids, and
   // assistant messages can't carry markers, so there's nothing to follow).
+  // `changed` reports whether the uuid set differs from the previous render at
+  // all — false means the payload shows the same branch state we already have
+  // (used to spot a stale refetch while a mutation is pending).
   function followEditNode(prevIndex, messages, merged) {
-    if (!prevIndex) return null;
+    if (!prevIndex) return { nodeId: null, changed: true }; // first render — nothing to compare
     var present = {};
-    messages.forEach(function (m) { present[m.uuid] = true; });
+    var added = false;
+    messages.forEach(function (m) {
+      present[m.uuid] = true;
+      if (!prevIndex[m.uuid]) added = true;
+    });
     var vanished = Object.keys(prevIndex).some(function (u) { return !present[u]; });
-    if (!vanished) return null;
+    if (!vanished) return { nodeId: null, changed: added };
     for (var i = messages.length - 1; i >= 0; i--) {
       var m = messages[i];
       if ((m.role === "human" || m.role === "user") && !prevIndex[m.uuid]) {
         var nodeId = merged.tree.messageIndex[m.uuid];
-        return (nodeId && merged.tree.nodes[nodeId]) ? nodeId : null;
+        return {
+          nodeId: (nodeId && merged.tree.nodes[nodeId]) ? nodeId : null,
+          changed: true
+        };
       }
     }
-    return null;
+    return { nodeId: null, changed: true };
   }
 
   // The merged tree is a cache; overrides remain the source of truth.
@@ -275,10 +297,17 @@
   // a follow-up pass once the regenerated reply has settled (final text → correct
   // correlation + highlighting).
   var liveRefetchTimer = null;
+  var mutationPendingSince = 0; // a write is in flight; unchanged payloads are stale until it lands
   function onConversationMutated(payload) {
     var convId = CTV.apiClient.getConversationIdFromUrl();
     if (!convId) return;
     if (payload && payload.conversationId && payload.conversationId !== convId) return;
+    mutationPendingSince = Date.now();
+    // The edited turn re-renders right away; strip its now-stale paint and
+    // pause the sticky repaint so it isn't painted in the OLD node's color
+    // while the re-parse is in flight (the highlight reconcile re-issues
+    // paint and ends the pause).
+    if (CTV.highlighting.pauseForMutation) CTV.highlighting.pauseForMutation();
     if (liveRefetchTimer) clearTimeout(liveRefetchTimer);
     liveRefetchTimer = setTimeout(function () {
       forceRefetch(convId);

@@ -24,9 +24,13 @@
   var activeColor = null;
   var listenerInstalled = false;
   var minimapEl = null;     // right-edge tick strip for the active node
+  var stickySuspendedUntil = 0; // sticky repaint paused while an edit's re-parse is in flight
 
+  // The re-parse outcome always lands here (directly or via
+  // highlightNodeMessages), so reaching it also ends any edit suspension.
   function clearMessageHighlights() {
     activeNodeId = null; // stop sticky re-apply
+    stickySuspendedUntil = 0;
     removeMinimap();
     var hl = document.querySelectorAll("." + MSG_CLASS);
     Array.prototype.forEach.call(hl, function (el) {
@@ -246,6 +250,11 @@
     if (CTV.domMapper && CTV.domMapper.onRecorrelate) {
       CTV.domMapper.onRecorrelate(function () {
         if (!activeNodeId) return;
+        // An in-place edit re-renders the turn immediately, but the re-parse
+        // only lands after the refetch debounce — repainting here would flash
+        // the OLD node's color on the edited message. Skip until the re-parse
+        // re-issues the highlight (which resets the suspension).
+        if (Date.now() < stickySuspendedUntil) return;
         applyHighlights();
         renderMinimap(activeNodeId); // refine tick positions as messages render
       });
@@ -264,10 +273,40 @@
     result = parseResult;
   }
 
+  // A conversation write is in flight (edit / send / regenerate). Two things
+  // until its re-parse lands:
+  //   1. Pause the sticky repaint — recorrelation would otherwise repaint the
+  //      re-rendered turn in the OLD node's color.
+  //   2. Strip paint that is ALREADY on a changed turn — React can keep the
+  //      painted element across an edit, so suppressing repaints alone leaves
+  //      stale color behind. A turn changed iff its DOM text key no longer
+  //      matches the message it was correlated under; only user turns are
+  //      comparable (and only user messages can carry markers), so plain sends
+  //      and untouched messages keep their paint — no blink on normal turns.
+  // activeNodeId stays set: the re-parse reconcile repaints (and ends the
+  // pause via clearMessageHighlights). Self-healing: if the re-parse never
+  // lands, sticky resumes after the timeout and repaints the unchanged tree.
+  function pauseForMutation(ms) {
+    stickySuspendedUntil = Date.now() + (ms || 12000);
+    if (!result || !activeNodeId) return;
+    var node = result.tree.nodes[activeNodeId];
+    if (!node) return;
+    node.messageUuids.forEach(function (uuid) {
+      var el = CTV.domMapper.getElement(uuid);
+      if (!el || !CTV.domMapper.isUserTurn(el)) return;
+      var key = CTV.domMapper.messageKey(uuid);
+      if (key == null || CTV.domMapper.turnKey(el) === key) return;
+      var target = highlightTarget(el);
+      target.classList.remove(MSG_CLASS);
+      target.style.removeProperty("--ctv-hl-color");
+    });
+  }
+
   CTV.highlighting = {
     init: init,
     update: update,
     highlightNodeMessages: highlightNodeMessages,
-    clearMessageHighlights: clearMessageHighlights
+    clearMessageHighlights: clearMessageHighlights,
+    pauseForMutation: pauseForMutation
   };
 })();

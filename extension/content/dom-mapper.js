@@ -244,6 +244,21 @@
     },
     // Force an immediate re-correlation (the observer is debounced).
     recorrelate: function () { if (lastNormalized) correlate(lastNormalized); },
+    // Text keys (normalized 80-char prefix, the same key correlation matches
+    // on): messageKey is what a uuid was correlated under, turnKey is what its
+    // element shows NOW, isUserTurn gates the comparison to user turns (only
+    // their text is comparable — assistant text is markdown-mangled). Used by
+    // highlighting.pauseForMutation to spot the turn an in-flight edit changed.
+    messageKey: function (uuid) {
+      if (!lastNormalized || !lastNormalized.ok) return null;
+      for (var i = 0; i < lastNormalized.messages.length; i++) {
+        var m = lastNormalized.messages[i];
+        if (m.uuid === uuid) return normalizeText(m.text).slice(0, 80);
+      }
+      return null;
+    },
+    turnKey: turnText,
+    isUserTurn: function (el) { return turnRole(el) === "human"; },
     // Subscribe to run after every (re)correlation — used to re-apply sticky
     // highlights as virtualized messages render in.
     onRecorrelate: function (fn) { if (typeof fn === "function") recorrelateListeners.push(fn); }
