@@ -10,7 +10,7 @@ Meet ClaudeTOC!
 
 ClaudeTOC is a Chrome extension that lets you organize a [claude.ai](https://claude.ai) conversation 
 into a topic tree as you chat, by typing inline tags in your messages.  Using these tags, the extension
-renders a table of contents in an side panel, with bidirectional node↔message
+renders a TOC tree in a side panel, with bidirectional node↔message
 highlighting.
 
 ## How to install?
@@ -20,8 +20,8 @@ git clone https://github.com/sfmig/claude-conversation-tree.git
 ```
 
 2. Open Chrome, go to `chrome://extensions` and enable **Developer mode** in the top right toggle.
-2. Click **Load unpacked** (top left) and select the `extension/` directory of this repository.
-3. Open a conversation on [claude.ai](https://claude.ai), make sure the extension is enabled.
+3. Click **Load unpacked** (top left) and select the `extension/` directory of this repository.
+4. Open a conversation on [claude.ai](https://claude.ai), make sure the extension is enabled.
 
 Now you are ready to go 🚀
 
@@ -35,7 +35,7 @@ Now you are ready to go 🚀
 
     This will create a node with title "Section 1" in the rendered TOC tree. Notice the new line after the `/node` tag! 
     
-    This message and any new ones ones after it will be automatically added to "Section 1". In the TOC tree, the node with an outer ring marks the section to which messages are currently being added. This is the currently **active node**.
+    This message and any new ones after it will be automatically added to "Section 1". In the TOC tree, the node with an outer ring marks the section to which messages are currently being added. This is the currently **active node**.
 
 * To create a new subsection, use the same `/node` syntax and specify the path from the root node using `>`:
     ```
@@ -75,16 +75,16 @@ Now you are ready to go 🚀
     The same as using the tag `/sibling Subsection 3` from the currently active node.
     ```
 
-* Message tags can be also be added at the end the message:    is the same  as
+* Tags can also be added at the end of the message, so:
     ```
     Can you explain how blabla works? /node First section
     ```
-    is the same  as
+    is the same as:
     ```
     /node First section
     Can you explain how blabla works?
     ```
-    
+
 
 ### Other functionality
 * **TOC - messages bidirectionality**
@@ -113,7 +113,7 @@ Now you are ready to go 🚀
 
 The extension (in `storage.js`) stores all required data locally under a single `chrome.storage.local` key (`tree-viz-data`). `chrome.storage.local` keeps data on disk in the browser profile; nothing is sent anywhere.
 
-Three pieces of user-typed text are stored as metadata: node titles (from your `/node` markers), the conversation title, and bookmark notes (text after `/bookmark`). The text of the messages themselves is never written to storage. You can verify this by doing this from a claude.ai tab with the extension enabled:
+Three pieces of user-typed text are stored as metadata: node titles (from your `/node` tags), the conversation title, and bookmark notes (text after `/bookmark`). The text of the messages themselves is never written to storage. You can verify this by doing this from a claude.ai tab with the extension enabled:
 * In the Chrome window, go to the Three dots options menu next to your username picture > More Tools > Developer tools
 * Click on the Application tab, then on the left `Storage > Extension Storage > Claude Conversation Tree > Local`.
 
@@ -139,6 +139,10 @@ After changing code, remember to both:
 Use `npm test` to run the unit tests for the pure modules.
 
 See `PLAN.md` for the full spec and `CLAUDE.md` for an architecture overview.
+
+## Built with Claude
+
+ClaudeTOC was written using [Claude Code](https://claude.ai).
 
 ## License
 
