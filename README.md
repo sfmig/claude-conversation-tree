@@ -1,17 +1,18 @@
-# Claude TOC
+<h1 align="left">
+  <img src="extension/icons/icon.svg" alt="ClaudeTOC logo" width="44" />
+  &nbsp;Claude TOC
+</h1>
 
 Build a table of contents (TOC) for your [Claude.ai](https://claude.ai) conversations as you go!
 
 
-* 🐰🕳️ Have you ever rabbit-holed deeply into a conversation with Claude, but got slightly lost with the twists and turns of understanding well a topic?
+* 🐰🕳️ Have you ever rabbit-holed deeply into a conversation with Claude, but got slightly lost in the twists and turns of a topic?
 * 🗺️🧭 Do you wish you had a timeline of the conversation, to navigate the messages and the topics covered?
 
 Meet ClaudeTOC!
 
-ClaudeTOC is a Chrome extension that lets you organize a Claude.ai conversation 
-into a topic tree as you chat, by typing inline tags in your messages.  Using these tags, the extension
-renders a TOC tree in a side panel, with bidirectional node↔message
-highlighting.
+ClaudeTOC is a Chrome extension that lets you organize a Claude.ai conversation into a topic tree as you chat, by typing inline tags in your messages. 
+Using these tags, the extension renders a TOC tree in a side panel, with bidirectional node↔message highlighting.
 
 ## How to install?
 1. Clone the repository locally using [git](https://git-scm.com/install/):
@@ -27,7 +28,7 @@ Now you are ready to go 🚀
 
 ## How to create a TOC?
 
-* You can create a new section and add messages to it by using this syntax:
+* You can create a new section and add messages to it with this syntax:
     ```
     /node Section 1
     Can you explain how blabla works?
@@ -43,36 +44,23 @@ Now you are ready to go 🚀
     This message will be added to subsection 1.1
     ```
 
-* If spelling out the full path to the section is too long, you can use the following **relative tags**, which define the path relative to the currently **active node**: 
-    * Child tag
+* If spelling out the full path to the section feels too long, you can use the following **relative tags**, which define the path relative to the currently **active node**: 
+    * `/child` tag
         ```
         /child Subsection 1.1
         Will create a new section just under the currently active one 
         ```
 
-    * Sibling tag
+    * `/sibling` tag
         ```
         /sibling Section 2
         Will create a new section that is a sibling of the currently active one 
         ```
 
-* You can also use `/up` before any of the **relative tags**, to move the currently active node:
-    ```
-    /up /sibling Section N
-    Will move the currently active node up one level, and then create a sibling node
-    ```
-
-    To move the currently active node several levels up, add a number after `/up`:
+* Add `/up` before a relative tag to move the active node up first. Sepcify a number to go up several levels:
     ```
     /up 2 /sibling Section N
-    Will move the currently active node up 2 levels, and then create a sibling node
-    ```
-
-    Note that the tag `/up /child Section name` is equivalent to `/sibling Section name`:
-    ```
-    /up /child Subsection 3
-    Will move the currently active node up one level, and then create a child node.
-    The same as using the tag `/sibling Subsection 3` from the currently active node.
+    Moves the active node up 2 levels, then creates a sibling node
     ```
 
 * Tags can also be added at the end of the message, so:
@@ -87,42 +75,33 @@ Now you are ready to go 🚀
 
 
 ### Other functionality
-* **TOC - messages bidirectionality**
 
-    Clicking on a section node in the TOC tree will highlight the messages included in that node and show their approximate location in the scrollbar.
-    Clicking on a message in the conversation will highlight the row of the corresponding TOC section.
-
-* **Renaming a node**
-
-    You can rename a node by double clicking on a node name in the TOC tree. The name in the TOC tree is the source of truth: after a node rename, you can use the updated name when defining a subsection path.
-
-* **Drag and drop nodes**
-
-    You can drag-and-drop nodes in the TOC tree to change their parent/children relations.
-
-* **Deleting a node**
-
-    You can delete a node in the TOC tree by hovering on its row, and clicking on the bin icon that comes up on the right. If a section node is deleted, its messages are then added to its parent.
-
-* **Reset the TOC tree**
-
-    Changes to the TOC tree are saved locally and persist across browser restarts, and closing/reopening the tab. You can recompute the TOC tree from the tagged messages in the conversation by clicking on "Reset" at the top right corner
+* **Click to highlight (both ways)**: click a node to highlight its messages (and mark their location on the scrollbar), and click a message to highlight its node in the tree.
+* **Rename**: double-click a node name to edit it. The name in the tree is the source of truth, so you can use the new name when specifying new tags.
+* **Drag and drop**: drag a node onto another to change its parent.
+* **Delete**: to delete a node, hover on its row and click on the bin icon that appears. The messages of a deleted node will move to the parent node.
+* **Reset**: the tree and its edits are saved locally. It will persists across restarts and tab reopens. To start from scratch, you can click "Reset" (top right) to rebuild the tree from the tagged messages.
 
 
 
 ## Is it private?
 
-The extension (in `storage.js`) stores all required data locally under a single `chrome.storage.local` key (`tree-viz-data`). `chrome.storage.local` keeps data on disk in the browser profile; nothing is sent anywhere.
+Everything stays local in your browser:
 
-Three pieces of user-typed text are stored as metadata: node titles (from your `/node` tags), the conversation title, and bookmark notes (text after `/bookmark`). The text of the messages themselves is never written to storage. You can verify this by doing this from a claude.ai tab with the extension enabled:
-* In the Chrome window, go to the Three dots options menu next to your username picture > More Tools > Developer tools
-* Click on the Application tab, then on the left `Storage > Extension Storage > Claude Conversation Tree > Local`.
+* **Stored locally only.** All data lives under one `chrome.storage.local` key (`tree-viz-data`) on disk in your browser profile. Nothing is sent anywhere.
+* **No message content.** Only two bits of your input text are stored: the node titles and the conversation title. The messages themselves are never written to storage.
+* **No external calls.** The extension can only touch `https://claude.ai/*` (see `manifest.json`).
 
-The extension is only allowed to touch data from `https://claude.ai/*` (see `manifest.json`). There are no external calls, and you can verify this by going to `chrome://extensions` and then clicking on `Details` in "Claude Conversation Tree".
+<details>
+<summary>How to verify this yourself</summary>
 
-You can also watch the actual traffic on the claude.ai tab:
-* In the Developer tools, click on the Network tab, and sort the data by the Domain column (if not shown, right click on any column and enable it).
-* The Domain column shouldn't show any differences with or without the extension.
+From a claude.ai tab with the extension enabled, open DevTools (⋮ menu > More Tools > Developer tools):
+
+* **Storage** — Application tab > `Storage > Extension Storage > Claude Conversation Tree > Local`. See exactly what's stored.
+* **Network** — Network tab, sorted by Domain. It shouldn't differ with or without the extension.
+* **Permissions** — at `chrome://extensions`, click `Details` to confirm the only host is `claude.ai`.
+
+</details>
 
 
 ## Can I use it in my phone?
