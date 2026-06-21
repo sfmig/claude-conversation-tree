@@ -106,8 +106,7 @@
         currentTitle = conversationTitle;
         currentResult = merged;
         console.debug(TAG, "merged tree:",
-          Object.keys(merged.tree.nodes).length, "nodes,",
-          Object.keys(parsed.bookmarks).length, "marker bookmarks");
+          Object.keys(merged.tree.nodes).length, "nodes");
         renderTree(merged);
 
         // Reconcile message highlights with the re-parsed tree. renderTree only
@@ -200,7 +199,7 @@
       lastParsedAt: Date.now(),
       schemaVersion: CTV.storage.SCHEMA_VERSION
     };
-    return CTV.storage.persistConversation(conversationId, record, parsed.bookmarks);
+    return CTV.storage.persistConversation(conversationId, record);
   }
 
   // Re-merge current overrides → re-render → persist. Called after every edit.

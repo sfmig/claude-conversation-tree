@@ -4,7 +4,7 @@
  * The entire extension state lives under a single key (ROOT_KEY) so we can
  * read/merge/write atomically and version it. Phase 1 only needs to initialise
  * the schema and offer get/set/update helpers; later phases store the parsed
- * tree, overrides, and bookmarks here.
+ * tree and overrides here.
  *
  * PRIVACY: this layer must never persist message *content* — only UUIDs and
  * metadata. The default schema below contains no message text and nothing here
@@ -21,7 +21,6 @@
   function defaultRoot() {
     return {
       conversations: {},
-      bookmarks: {},
       settings: {},
       schemaVersion: SCHEMA_VERSION
     };
@@ -74,22 +73,10 @@
   }
 
   // Persist a conversation record (the merged tree is a cache; overrides are
-  // the source of truth for user edits) and re-sync this conversation's
-  // marker-sourced bookmarks, while leaving user (button) bookmarks untouched.
-  function persistConversation(conversationId, record, markerBookmarks) {
+  // the source of truth for user edits).
+  function persistConversation(conversationId, record) {
     return updateRoot(function (root) {
       root.conversations[conversationId] = record;
-
-      markerBookmarks = markerBookmarks || {};
-      Object.keys(root.bookmarks).forEach(function (bid) {
-        var b = root.bookmarks[bid];
-        if (b && b.conversationId === conversationId && b.source === "marker") {
-          delete root.bookmarks[bid];
-        }
-      });
-      Object.keys(markerBookmarks).forEach(function (bid) {
-        root.bookmarks[bid] = markerBookmarks[bid];
-      });
       return root;
     });
   }

@@ -2,9 +2,9 @@
  * parser.js  —  the marker parser (Phase 2).
  *
  * PURE and DETERMINISTIC: plain functions that take an ordered message list and
- * return a fresh tree + parsed bookmarks. No DOM, no storage, no time, no
- * randomness — so it's trivially unit-testable in Node and idempotent (the same
- * input always yields byte-identical output, including node IDs).
+ * return a fresh tree. No DOM, no storage, no time, no randomness — so it's
+ * trivially unit-testable in Node and idempotent (the same input always yields
+ * byte-identical output, including node IDs).
  *
  * Confirmed input contract (see PHASE1-FINDINGS.md):
  *   message = { uuid, role: "human"|"assistant", text, index? }
@@ -25,7 +25,7 @@
   "use strict";
 
   var ROOT_ID = "node_root";
-  var ALLOWED_COMMANDS = ["node", "child", "sibling", "up", "star", "bookmark"];
+  var ALLOWED_COMMANDS = ["node", "child", "sibling", "up"];
   var PATH_SEP = ">"; // breadcrumb separator: /node Auth > Tokens
   // A line may have an optional leading /up [N] pointer-move, then one "name"
   // marker (or content). /up's arg is a bounded integer, so it can be peeled off
@@ -34,11 +34,11 @@
   var UP_RE = /^\/up(?:\s+(\d+))?(?=$|\s|\/)/;
   // The trailing "name" marker (note: `up` is intentionally absent — it's a
   // prefix/standalone only, so `/up /up …` degrades to text, never double-moves).
-  var NAME_RE = /^\/(node|child|sibling|star|bookmark)(?:\s+(.*))?$/;
+  var NAME_RE = /^\/(node|child|sibling)(?:\s+(.*))?$/;
   // The first command token on a line, at line start OR preceded by whitespace.
   // Text before it is content; from the token to EOL is the "marker part". The
   // whitespace requirement keeps paths/URLs safe (e.g. a/b/node is not a marker).
-  var CMD_AT = /(^|\s)\/(node|child|sibling|up|star|bookmark)\b/;
+  var CMD_AT = /(^|\s)\/(node|child|sibling|up)\b/;
 
   function isUserRole(role) {
     return role === "human" || role === "user";
@@ -80,11 +80,6 @@
 
   function normalizeName(name) {
     return name.trim().toLowerCase();
-  }
-
-  // Stable bookmark id: one bookmark per (conversation, target message).
-  function generateBookmarkId(conversationId, messageUuid) {
-    return "bm_" + cyrb53(String(conversationId) + "|" + String(messageUuid)).toString(16);
   }
 
   // Split a (user) message into recognised markers + the remaining content.
@@ -156,9 +151,7 @@
     };
 
     var messageIndex = {};
-    var bookmarks = {};
     var currentNodeId = ROOT_ID;
-    var previousMessageUuid = null;
 
     function createNode(id, title, titleSource, parentId) {
       nodes[id] = {
@@ -283,23 +276,6 @@
           }
           break;
         }
-        case "star":
-        case "bookmark":
-          if (previousMessageUuid) {
-            var bid = generateBookmarkId(conversationId, previousMessageUuid);
-            bookmarks[bid] = {
-              id: bid,
-              messageUuid: previousMessageUuid,
-              conversationId: conversationId,
-              nodeId: messageIndex[previousMessageUuid] || null,
-              note: marker.arg || "",
-              tags: [],
-              createdAt: null,
-              source: "marker"
-            };
-          }
-          // else: /star as first message → skip silently (PLAN §5)
-          break;
         default:
           break; // unreachable: ALLOWED_COMMANDS gate in extractMarkers
       }
@@ -320,18 +296,15 @@
 
       // Attach every message to its current node so it's always findable
       // (clicking the node highlights it) — including a marker-only message like
-      // `/node A > B`. Only *substantive* content advances `previousMessageUuid`,
-      // so `/star` still targets the last real message, not a command-only one.
+      // `/node A > B`.
       nodes[currentNodeId].messageUuids.push(message.uuid);
       messageIndex[message.uuid] = currentNodeId;
-      if (parsed.hasContent) previousMessageUuid = message.uuid;
     });
 
     return {
       rootNodeId: ROOT_ID,
       pointerNodeId: currentNodeId, // where the next un-marked message would land
-      tree: { nodes: nodes, messageIndex: messageIndex },
-      bookmarks: bookmarks
+      tree: { nodes: nodes, messageIndex: messageIndex }
     };
   }
 
@@ -341,7 +314,6 @@
     cyrb53: cyrb53,
     namedNodeId: namedNodeId,
     unnamedNodeId: unnamedNodeId,
-    generateBookmarkId: generateBookmarkId,
     extractMarkers: extractMarkers,
     parseConversation: parseConversation
   };

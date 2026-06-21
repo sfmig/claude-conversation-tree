@@ -16,10 +16,11 @@ trade-offs. `KICKOFF.md` and `PHASE1-FINDINGS.md` are historical.
 - **Done:** Phases 1–5 (capture, parser, panel, persistence, editing) plus
   much of 7 (sticky highlights, hunt-to-virtualized-message, minimap ticks,
   live re-parse on in-place edits).
-- **Not built:** Phase 6 bookmarks UI — `popup.js` is a placeholder and there
-  are no star buttons; the parser already extracts `/star`–`/bookmark`
-  markers. Note: marker-based bookmarking prompts Claude to reply (any user
-  message does), so the planned star-button UI is the preferred direction.
+- **Removed for v1:** Phase 6 bookmarks. There was never any UI; the dormant
+  `/star`–`/bookmark` parsing + storage plumbing was stripped before the first
+  release. The spec is kept in `PLAN.md` (marked _DEFERRED_, with a "To re-add
+  bookmarks" checklist). Note: marker-based bookmarking prompts Claude to reply
+  (any user message does), so a star-button UI is the preferred future direction.
 
 ## Data flow
 

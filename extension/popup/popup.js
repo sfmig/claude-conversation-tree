@@ -1,8 +1,8 @@
 /*
- * popup.js — Phase 1 placeholder.
+ * popup.js — placeholder.
  *
- * The global bookmarks view (Phase 6) will be implemented here. For now we just
- * confirm the popup loads.
+ * The popup is currently static (see popup.html). This script just confirms it
+ * loads; richer popup views can be wired up here later.
  */
 "use strict";
 console.debug("[CTV popup] loaded");

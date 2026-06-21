@@ -67,15 +67,15 @@ extension/
     dom-mapper.js                selector probe + UUID↔element map
     content.js                   entry; wiring + FINDINGS report
     styles.css                   reserves the .ctv- namespace (no UI yet)
-  popup/                         placeholder; global bookmarks land later
+  popup/                         static info popup
   icons/                         icon-16/48/128.png
 ```
 
 ## Phase 2 — Parser (done, not yet wired into the UI)
 
 `content/parser.js` is the pure, deterministic marker parser. It takes the
-normalized message list and returns a topic tree + bookmarks, with stable node
-IDs (no DOM/storage/time dependencies). It's loaded by the manifest but not yet
+normalized message list and returns a topic tree, with stable node IDs (no
+DOM/storage/time dependencies). It's loaded by the manifest but not yet
 invoked by `content.js` — that happens in Phase 3 (tree panel).
 
 Run its unit tests (Node only, no browser, no dependencies):
@@ -84,9 +84,9 @@ Run its unit tests (Node only, no browser, no dependencies):
 npm test        # from the repo root → runs tests/parser.test.js (27 cases)
 ```
 
-Covers every marker (`/node`, `/child`, `/sibling`, `/up`, `/star`, `/bookmark`), edge
+Covers every marker (`/node`, `/child`, `/sibling`, `/up`), edge
 cases (empty `/node` → root, no name, multiple markers per message, unknown
-commands, assistant messages not scanned, marker-only messages, `/star` first),
+commands, assistant messages not scanned, marker-only messages),
 breadcrumb paths, name re-entry, the pointer, stable IDs, and idempotency.
 
 ## Phase 3 — Tree panel + highlighting (read-only)
@@ -102,8 +102,7 @@ The parser is now wired into a UI. On a conversation, the extension:
 - **message → node:** click anywhere in a message to highlight its node in the
   panel.
 
-Still read-only — renaming, drag-to-reparent, delete, and the bookmarks UI come
-in Phases 5–6.
+Still read-only — renaming, drag-to-reparent, and delete come in Phase 5.
 
 ### Try it
 Open a conversation that uses markers, e.g. send messages like:
@@ -135,12 +134,11 @@ On every conversation load the pipeline is now: **parse → load stored override
   removed nodes/messages are dropped silently. Tested in `tests/merge.test.js`.
 - `content/storage.js` — `getConversation` / `persistConversation`. The merged
   tree is stored as a cache under `tree-viz-data → conversations[<id>]`;
-  `overrides` is the source of truth. Marker (`/star`) bookmarks are re-synced on
-  each parse; user bookmarks are left untouched. **No message content is stored.**
+  `overrides` is the source of truth. **No message content is stored.**
 
 There's no visible change yet because `overrides` is empty until Phase 5 adds
-the editing UI — but the tree + bookmarks now survive reloads, and any future
-edit will too.
+the editing UI — but the tree now survives reloads, and any future edit will
+too.
 
 ### Verify persistence
 `chrome.storage` isn't available in the page console. Open the extension's
@@ -191,7 +189,6 @@ your message.
 | `/child <name>` | Go to a **child** of the current node (relative). Accepts a path: `/child Tokens > Refresh`. No name → "Untitled topic". |
 | `/sibling <name>` | Go to a **sibling** of the current node (i.e. a child of its parent; a top-level topic at the root). Accepts a path. |
 | `/up` · `/up N` | Move the pointer **up** to the parent (or up N levels), clamped at the root. A pure move (creates nothing). May **prefix** another marker on the same line: `/up 2 /child TOPIC`. |
-| `/star` · `/bookmark <note>` | Bookmark the previous (received) message. |
 
 The separator is **`>`** (a breadcrumb), spaces optional (`A>B` = `A > B`). A
 literal `/` in a topic name is fine. There is **no `/parent` or `/root`** — root

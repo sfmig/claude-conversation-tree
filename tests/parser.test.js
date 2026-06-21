@@ -354,37 +354,6 @@ test("a marker-only message is still attached to its node (findable)", () => {
   assert.equal(r.tree.messageIndex["msg_1"], aId);
 });
 
-// ---- bookmarks -------------------------------------------------------------
-
-test("/star bookmarks the previous (received) message", () => {
-  const r = run([
-    human("question"),
-    assistant("great answer"),
-    human("/star")
-  ]);
-  const bms = Object.values(r.bookmarks);
-  assert.equal(bms.length, 1);
-  assert.equal(bms[0].messageUuid, "msg_1"); // the assistant answer
-  assert.equal(bms[0].nodeId, ROOT_ID);
-  assert.equal(bms[0].note, "");
-  assert.equal(bms[0].source, "marker");
-});
-
-test("/bookmark carries a note", () => {
-  const r = run([
-    human("q"),
-    assistant("a"),
-    human("/bookmark good JWT explanation")
-  ]);
-  const bms = Object.values(r.bookmarks);
-  assert.equal(bms[0].note, "good JWT explanation");
-});
-
-test("/star as the very first message is skipped silently", () => {
-  const r = run([human("/star"), human("hello")]);
-  assert.equal(Object.keys(r.bookmarks).length, 0);
-});
-
 // ---- stable ids & idempotency ----------------------------------------------
 
 test("node ids are stable across re-parses of identical input", () => {
@@ -400,7 +369,7 @@ test("parsing is idempotent (byte-identical output for identical input)", () => 
     assistant("a1"),
     human("/sibling B\nq2"),
     assistant("a2"),
-    human("/star")
+    human("a follow-up question")
   ];
   const a = run(messages.map((m) => ({ ...m })));
   const b = run(messages.map((m) => ({ ...m })));
@@ -558,7 +527,6 @@ test("realistic conversation parses into the expected topic tree", () => {
     assistant("use httpOnly cookies"),
     human("/child Tokens\nwhat about refresh tokens?"),   // child of Auth
     assistant("rotate them"),
-    human("/star"),                                        // bookmark the rotate answer
     human("/node Auth\nback to Auth: rate limiting?"),     // re-enter Auth absolutely
     assistant("use a token bucket"),
     human("/node Deployment\nhow to ship?"),               // new top-level topic
@@ -571,18 +539,12 @@ test("realistic conversation parses into the expected topic tree", () => {
   assert.equal(node(r, tokensId).title, "Tokens");
 
   // "back to Auth" content + its assistant reply attach to Auth
+  assert.ok(node(r, authId).messageUuids.includes("msg_4"));
   assert.ok(node(r, authId).messageUuids.includes("msg_5"));
-  assert.ok(node(r, authId).messageUuids.includes("msg_6"));
 
   // Deployment is a top-level sibling under root
   const deployId = node(r, ROOT_ID).childIds[1];
   assert.equal(node(r, deployId).title, "Deployment");
-
-  // one bookmark, on the "rotate them" assistant message
-  const bms = Object.values(r.bookmarks);
-  assert.equal(bms.length, 1);
-  assert.equal(bms[0].messageUuid, "msg_3");
-  assert.equal(bms[0].nodeId, tokensId);
 });
 
 // ---- override-aware resolution (markers resolve against the tree you see) ---
