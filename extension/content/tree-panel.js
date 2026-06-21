@@ -102,7 +102,7 @@
 
     var empty = document.createElement("div");
     empty.className = "ctv-empty";
-    empty.textContent = "No topics yet. Type /node Topic > Subtopic in a message to organize.";
+    empty.textContent = "No topics yet. Type /node Section in a message to initialise a section.";
 
     var tree = document.createElement("div");
     tree.className = "ctv-tree";
@@ -457,6 +457,18 @@
     rerender();
   }
 
+  // Drop the rendered tree without tearing down the panel chrome — used when the
+  // user navigates to a non-conversation page (e.g. "New chat") so the previous
+  // conversation's tree doesn't linger. Leaves the panel showing its empty hint.
+  function clear() {
+    lastResult = null;
+    activeNodeId = null;
+    collapsed.clear();
+    if (!els) return;
+    els.tree.textContent = "";
+    els.empty.style.display = "block";
+  }
+
   // Mark a node active (message → node) and scroll its row into view.
   function setActiveNode(nodeId) {
     activeNodeId = nodeId;
@@ -479,6 +491,7 @@
 
   CTV.treePanel = {
     render: render,
+    clear: clear,
     setActiveNode: setActiveNode,
     getNodeColor: getNodeColor,
     getActiveNode: getActiveNode,

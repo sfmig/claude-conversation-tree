@@ -327,10 +327,28 @@
   // (no network GET) and a fallback when a navigation isn't otherwise caught.
   function refresh(reason) {
     var convId = CTV.apiClient.getConversationIdFromUrl();
-    if (!convId) return;                       // not on a conversation page
+    if (!convId) {                             // not on a conversation page (e.g. "New chat")
+      if (currentConversationId !== null) {
+        console.debug(TAG, "refresh (" + reason + ") → no conversation; clearing tree");
+        clearTree();
+      }
+      return;
+    }
     if (convId === currentConversationId) return; // already rendered
     console.debug(TAG, "refresh (" + reason + ") →", convId);
     attemptFetch(convId, 0);
+  }
+
+  // Wipe the rendered tree + selection state when leaving a conversation, so the
+  // previous conversation's tree doesn't stay visible over a new/blank chat.
+  function clearTree() {
+    currentConversationId = null;
+    currentResult = null;
+    currentParsed = null;
+    currentOverrides = null;
+    currentTitle = "Conversation";
+    if (CTV.highlighting.clearMessageHighlights) CTV.highlighting.clearMessageHighlights();
+    if (CTV.treePanel.clear) CTV.treePanel.clear();
   }
 
   // Retry with backoff: the hook may beat us (sets currentConversationId), the
