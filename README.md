@@ -8,7 +8,7 @@ Build a table of contents (TOC) for your [Claude.ai](https://claude.ai) conversa
 
 Meet ClaudeTOC!
 
-ClaudeTOC is a Chrome extension that lets you organize a [claude.ai](https://claude.ai) conversation 
+ClaudeTOC is a Chrome extension that lets you organize a Claude.ai conversation 
 into a topic tree as you chat, by typing inline tags in your messages.  Using these tags, the extension
 renders a TOC tree in a side panel, with bidirectional node↔message
 highlighting.
@@ -105,6 +105,7 @@ Now you are ready to go 🚀
     You can delete a node in the TOC tree by hovering on its row, and clicking on the bin icon that comes up on the right. If a section node is deleted, its messages are then added to its parent.
 
 * **Reset the TOC tree**
+
     Changes to the TOC tree are saved locally and persist across browser restarts, and closing/reopening the tab. You can recompute the TOC tree from the tagged messages in the conversation by clicking on "Reset" at the top right corner
 
 
@@ -133,12 +134,12 @@ The extension won't work in Chrome on your phone or in the Claude App. But any t
 Install the extension as described above. 
 
 After changing code, remember to both:
-* click "Reload" on the extension in `chrome://extensions`, and 
-* hard-reload the claude.ai tab.
+1. Click "Reload" on the extension in `chrome://extensions`, and 
+2. Hard-reload the claude.ai tab.
 
 Use `npm test` to run the unit tests for the pure modules.
 
-See `PLAN.md` for the full spec and `CLAUDE.md` for an architecture overview.
+See `CLAUDE.md` for an architecture overview.
 
 ## Built with Claude
 
