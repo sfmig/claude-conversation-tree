@@ -22,6 +22,8 @@
   var result = null;        // current parse result
   var activeNodeId = null;  // node whose messages are currently highlighted
   var activeColor = null;
+  var activeMessageUuid = null; // single message highlighted via message-click
+  var messageColor = null;      // its node's colour
   var listenerInstalled = false;
   var minimapEl = null;     // right-edge tick strip for the active node
   var stickySuspendedUntil = 0; // sticky repaint paused while an edit's re-parse is in flight
@@ -30,6 +32,7 @@
   // highlightNodeMessages), so reaching it also ends any edit suspension.
   function clearMessageHighlights() {
     activeNodeId = null; // stop sticky re-apply
+    activeMessageUuid = null;
     stickySuspendedUntil = 0;
     removeMinimap();
     var hl = document.querySelectorAll("." + MSG_CLASS);
@@ -59,6 +62,38 @@
       target.classList.add(MSG_CLASS);
       if (activeColor) target.style.setProperty("--ctv-hl-color", activeColor);
     });
+  }
+
+  // Single-message highlight (message-click): paint just the one clicked
+  // message in its node's colour, if it's currently mapped. Sticky across
+  // virtualization via the onRecorrelate handler. Idempotent per element.
+  function applyMessageHighlight() {
+    if (!activeMessageUuid) return;
+    var el = CTV.domMapper.getElement(activeMessageUuid);
+    if (!el) return;
+    var target = highlightTarget(el);
+    target.classList.add(MSG_CLASS);
+    if (messageColor) target.style.setProperty("--ctv-hl-color", messageColor);
+  }
+
+  // message → paint that one message in its node's colour, and mark the node
+  // active in the panel (without painting the whole section).
+  function highlightMessage(uuid) {
+    if (!result) return;
+    var nodeId = result.tree.messageIndex[uuid];
+    clearMessageHighlights(); // drop any section / previous single highlight
+    activeMessageUuid = uuid;
+    messageColor = (nodeId && CTV.treePanel && CTV.treePanel.getNodeColor)
+      ? CTV.treePanel.getNodeColor(nodeId)
+      : null;
+    applyMessageHighlight();
+    if (nodeId && CTV.treePanel) CTV.treePanel.setActiveNode(nodeId);
+  }
+
+  // The conversation scroll container, found via any currently-mapped message.
+  function conversationContainer() {
+    var anchor = firstMappedElement(CTV.domMapper.getOrderedUuids());
+    return anchor ? scrollContainerFor(anchor) : null;
   }
 
   // ---- scrolling to a (possibly virtualized) message ----------------------
@@ -234,11 +269,18 @@
     if (target.closest(".ctv-panel")) return; // ignore clicks in our own panel
 
     var el = target.closest("[data-ctv-uuid]");
-    if (!el) return;
-    var uuid = el.getAttribute("data-ctv-uuid");
-    var nodeId = result.tree.messageIndex[uuid];
-    if (nodeId && CTV.treePanel) {
-      CTV.treePanel.setActiveNode(nodeId);
+    if (el) {
+      highlightMessage(el.getAttribute("data-ctv-uuid"));
+      return;
+    }
+    // Click inside the conversation but outside any message → clear the
+    // selection (highlights + minimap) and deselect the TOC row. Scoped to the
+    // conversation scroll container so clicks elsewhere (composer, sidebar)
+    // leave the selection alone.
+    var container = conversationContainer();
+    if (container && container.contains(target)) {
+      clearMessageHighlights();
+      if (CTV.treePanel && CTV.treePanel.setActiveNode) CTV.treePanel.setActiveNode(null);
     }
   }
 
@@ -249,14 +291,17 @@
     // in during scroll (handles virtualization).
     if (CTV.domMapper && CTV.domMapper.onRecorrelate) {
       CTV.domMapper.onRecorrelate(function () {
-        if (!activeNodeId) return;
+        if (!activeNodeId && !activeMessageUuid) return;
         // An in-place edit re-renders the turn immediately, but the re-parse
         // only lands after the refetch debounce — repainting here would flash
         // the OLD node's color on the edited message. Skip until the re-parse
         // re-issues the highlight (which resets the suspension).
         if (Date.now() < stickySuspendedUntil) return;
-        applyHighlights();
-        renderMinimap(activeNodeId); // refine tick positions as messages render
+        if (activeNodeId) {
+          applyHighlights();
+          renderMinimap(activeNodeId); // refine tick positions as messages render
+        }
+        if (activeMessageUuid) applyMessageHighlight();
       });
     }
     // Reposition the minimap strip on resize while a node is active.
